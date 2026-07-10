@@ -1,0 +1,25 @@
+# Build outputs
+/build/
+/cmake-build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+
+# JUCE generated artefacts
+JuceLibraryCode/
+*.jucer
+
+# Vendored JUCE (point CMake at an external checkout instead)
+/JUCE/
+
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
