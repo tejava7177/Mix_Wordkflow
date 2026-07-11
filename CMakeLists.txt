@@ -34,6 +34,8 @@ target_sources(MixMentor
     PRIVATE
         Source/Main.cpp
         Source/MainComponent.cpp
+        Source/Engine/AudioEngine.cpp
+        Source/UI/ChannelStripComponent.cpp
 )
 
 target_include_directories(MixMentor

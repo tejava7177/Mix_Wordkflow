@@ -17,6 +17,9 @@ JuceLibraryCode/
 # Vendored JUCE (point CMake at an external checkout instead)
 /JUCE/
 
+# Demo / working audio (large binaries; not committed for now)
+/demo/
+
 # macOS
 .DS_Store
 
