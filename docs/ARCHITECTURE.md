@@ -10,31 +10,75 @@ educational.
 UI          JUCE Components — console, channel strips, EQ/comp editors,
             guided-mode panel, meters, transport
 
-Guidance    Stage model, per-control help text, template application
-            (the "educational" layer)
+Guidance    Stage model, per-control help text, recommendation engine,
+            template application (the layer that gets a novice to a good mix)
+
+Analysis    Per-stem DSP measurement (loudness, peak, crest, spectrum,
+            clip/DC/phase) + genre/role-driven recommendations
 
 Engine      Synced multitrack playback, per-channel DSP chain, master bus,
             metering, offline mixdown/export
 
-Domain      Pure data: Session, Channel, ProcessingChain, EqBand,
-            CompressorSettings, Template, Stage
+Domain      Pure data: Session, GenreProfile, Channel, StemRole,
+            ProcessingChain, EqBand, CompressorSettings, Template, Stage
 ```
+
+All "intelligence" is deterministic DSP + expert rules — no AI/ML. Processing is
+performed by our own curated processors; MixMentor does not host third-party plugins.
 
 ## Domain data model
 
 ```
 Session
- ├─ sampleRate, tempo (optional), master ChannelState
+ ├─ sampleRate, master ChannelState
+ ├─ GenreProfile          // chosen style → mixing targets & default moves
  └─ Channel[]
       ├─ name, colour, source file
+      ├─ StemRole          // drums / bass / lead vocal / guitar / keys / ... / other
+      ├─ StemAnalysis      // loudness, peak, crest, spectrum, clip/DC/phase flags
       ├─ gain (trim), fader, pan, mute, solo
       └─ ProcessingChain
            ├─ EqBand[]           // freq, gain, Q, type (HP / bell / shelf)
            └─ CompressorSettings // threshold, ratio, attack, release, makeup
 
-Template   // a saved ProcessingChain (+ default fader/pan) for one instrument
-Stage      // id, title, help text, which controls it activates (guidance layer)
+GenreProfile // target tonal balance, loudness, low-end/width guidance per style
+StemRole     // taxonomy that maps a stem to role-appropriate defaults & templates
+Template     // a saved ProcessingChain (+ default fader/pan) for a role
+Stage        // id, title, help text, which controls it activates (guidance layer)
 ```
+
+`GenreProfile` and `StemRole` are how MixMentor covers the huge variety of user
+material without per-file magic: the user reduces any stem to a known *role*, and the
+chosen *genre* sets targets — together they select good defaults and templates.
+
+## Import analysis (DSP, not AI)
+
+On import, each stem is measured so the app can pre-fill good defaults and warn about
+problems. All measurement is classic DSP — deterministic and explainable:
+
+- **Level** — integrated loudness, true/sample peak, crest factor (dynamics)
+- **Spectrum** — long-term average spectral balance (FFT), used to spot excess
+  low-end mud, boxiness, or harshness relative to the genre target
+- **Integrity** — clipping, DC offset, and stereo phase/correlation checks
+- **Role hint** — a rough suggestion of the stem's role from its spectral/temporal
+  signature, offered as the default for the user to confirm (the user has final say)
+
+## Recommendation engine (genre × role × analysis → defaults)
+
+A rule-based engine turns `GenreProfile` + `StemRole` + `StemAnalysis` into starting
+settings for each stage: a suggested trim, fader level, pan, high-pass frequency, and
+gentle EQ/compression moves, plus plain-language reasons. In guided mode each stage
+opens with these recommendations already applied; the user understands and refines
+them. There is no machine learning — just curated expert rules, so every suggestion
+can be explained.
+
+## Curated processors (no plugin hosting)
+
+MixMentor ships its own small set of processors (EQ, compressor, and later a limiter),
+each built on `juce::dsp` primitives with one consistent, teachable UI. It does not
+host VST/AU plugins. A single, curated toolset is a deliberate product choice: the
+beginner never chooses between competing tools, and every control is one we can
+explain and pre-configure.
 
 ## Audio engine
 
@@ -104,3 +148,14 @@ was heard.
 
 Standalone JUCE application, macOS first, Windows-ready. Modules: `juce_audio_utils`,
 `juce_audio_formats`, `juce_dsp`, `juce_gui_extra`.
+
+## Design principles & non-goals
+
+- **One path, not a toolbox** — a single curated processor per job; simplicity is a
+  feature.
+- **Explainable, deterministic** — DSP + expert rules only; no AI/ML, so every default
+  and warning has a reason.
+- **Focused mixer, not a DAW** — no recording, MIDI, arrangement timeline, plugin
+  hosting, or unlimited tracks. This keeps the product shippable and the goal sharp,
+  while still exercising the same real-time audio, DSP, metering, and UI engineering a
+  DAW's mixer would.

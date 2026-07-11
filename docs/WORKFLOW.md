@@ -9,13 +9,19 @@ The app walks the user through the mixing stages in order. At each stage the rel
 controls are in focus, with plain-language help and live visual feedback.
 
 1. **Open a session** — load the bundled demo multitrack, or import your own stems
-2. **Gain staging** — set healthy input levels with headroom
-3. **Balance** — set relative loudness with faders until the song sounds good
-4. **Panning** — place elements across the stereo field
-5. **EQ** — cut problem frequencies, carve space between instruments
-6. **Compression** — control dynamics and add punch
-7. **Master** — check the master meter and loudness
-8. **Export** — render the mix to a WAV file
+2. **Set up** — label each stem's role, pick the genre/style, and review the analysis
+   (warnings + smart defaults). See [USER_FLOW.md](USER_FLOW.md) for the detailed setup.
+3. **Gain staging** — set healthy input levels with headroom
+4. **Balance** — set relative loudness with faders until the song sounds good
+5. **Panning** — place elements across the stereo field
+6. **EQ** — cut problem frequencies, carve space between instruments
+7. **Compression** — control dynamics and add punch
+8. **Master** — check the master meter and loudness
+9. **Export** — render the mix to a WAV file
+
+In guided mode each stage opens with a recommendation already applied (from genre ×
+role × analysis), explained in plain language — the user refines rather than starting
+from scratch.
 
 At any point the user can step back, replay, or leave guided mode to adjust freely.
 

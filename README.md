@@ -1,50 +1,58 @@
 # MixMentor
 
-Learn to mix by doing it — a guided, template-based mixing studio for beginners.
+Take a song from raw stems to a release-ready mix — even if you've never mixed
+before. A guided mixing studio that does the knowing for you.
 
 ## What it is
 
-MixMentor is a JUCE desktop application that teaches audio mixing by walking you
-through the real mixing process, one stage at a time. You load a multitrack
-session, and MixMentor guides you from gain staging to the master bus — explaining
-each step in plain language, showing the effect visually, and offering ready-made
-templates so you always have a good-sounding starting point.
+MixMentor is a JUCE desktop application with one goal: **let someone who knows
+nothing about mixing produce a release-ready mix.** You load your stems, pick the
+song's style, and tell it what each track is (drums, bass, vocal, …). MixMentor
+analyzes the audio, pre-fills sensible settings, and walks you through the mixing
+process one stage at a time — explaining each step and letting you refine with
+confidence.
 
-It is a real mixer with real DSP, wrapped in a learning-first workflow.
+It is a real mixer with real DSP, deliberately shaped as **one well-paved path**
+rather than an open-ended toolbox.
 
 ## Who it's for
 
-- People learning to mix for the first time
-- Hobbyist musicians and bedroom producers
-- Students, podcasters, and content creators who want a better-sounding result
-  without a steep DAW learning curve
+- People who want a good-sounding mix but don't know how to mix
+- Hobbyist musicians, bedroom producers, singer-songwriters
+- Podcasters and content creators who need a clean, release-ready result
 
 ## The idea
 
-Most mixing tools assume you already know what you're doing. MixMentor inverts that:
-the interface is organized around the *stages of mixing* and teaches as you go.
+Most mixing tools assume you already know what you're doing and hand you thousands of
+plugin choices. MixMentor removes both blockers — not knowing *what to do*, and not
+knowing *which tool and setting to use*:
 
 ```
-Gain staging → Balance → Panning → EQ → Compression → (Reverb/Delay) → (Automation) → Master
+Pick a genre + label your stems → analyze → guided stages, each pre-filled with a
+recommendation you understand and refine → export a release-ready mix
 ```
 
-Three things make it beginner-friendly:
+What makes a beginner succeed:
 
-- **Guided mode** — follow the stages in a recommended order; only the controls that
-  matter right now are in focus.
-- **Templates** — per-instrument and whole-mix starting chains, so you hear a good
-  result immediately and learn by inspecting it.
-- **Explain-as-you-go** — every control says what it does and when to use it, with
-  live visual feedback (spectrum, gain-reduction, meters).
+- **Genre + roles** — the style sets the targets; labeling each stem's role tells the
+  app how to treat it. You cover any material without needing mixing knowledge.
+- **Analysis + smart defaults** — it measures your stems (loudness, spectrum, clipping
+  …) and pre-fills good starting settings with plain-language reasons. Deterministic
+  DSP and expert rules — no AI.
+- **One curated toolset** — our own EQ and compressor, one good option per job, so you
+  never choose between competing plugins.
+- **Explain-as-you-go** — every control says what it does, with live visual feedback.
 
 ## Key features (target)
 
 - Load a multitrack session (audio stems) and play them in sync
+- Pick a genre/style that sets mixing targets; label each stem's role
+- Import analysis (loudness, peak, spectrum, clipping) with warnings and smart defaults
 - Per-channel strip: gain, fader, pan, mute/solo, level meter
-- Per-channel EQ and compression with visual feedback
+- Our own EQ and compressor with visual feedback
 - Master bus with metering (peak/RMS, loudness)
-- Guided stage-by-stage workflow with plain-language help
-- Starter templates for common instruments and full mixes
+- Guided stages, each opening with a recommendation you refine
+- Role/genre starter templates
 - Export the finished mix to WAV
 - A bundled demo session so you can start with zero setup
 
