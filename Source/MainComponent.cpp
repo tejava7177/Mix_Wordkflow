@@ -38,6 +38,30 @@ MainComponent::MainComponent()
     loopButton.onClick = [this] { engine.setLooping(loopButton.getToggleState()); };
     addAndMakeVisible(loopButton);
 
+    exportButton.onClick = [this]
+    {
+        fileChooser = std::make_unique<juce::FileChooser>(
+            "Export mix as WAV",
+            juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("mixmentor-mix.wav"),
+            "*.wav");
+        const auto flags = juce::FileBrowserComponent::saveMode
+                         | juce::FileBrowserComponent::canSelectFiles
+                         | juce::FileBrowserComponent::warnAboutOverwriting;
+        fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc)
+        {
+            auto file = fc.getResult();
+            if (file == juce::File {})
+                return;
+            if (! file.hasFileExtension("wav"))
+                file = file.withFileExtension("wav");
+            const bool ok = engine.exportMixdown(file);
+            juce::NativeMessageBox::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon, "MixMentor",
+                ok ? ("Exported mix to\n" + file.getFullPathName()) : "Export failed.");
+        });
+    };
+    addAndMakeVisible(exportButton);
+
     positionLabel.setJustificationType(juce::Justification::centredRight);
     positionLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(165, 178, 194));
     addAndMakeVisible(positionLabel);
@@ -187,6 +211,8 @@ void MainComponent::resized()
     stopButton.setBounds(header.removeFromLeft(80).reduced(0, 4));
     header.removeFromLeft(8);
     loopButton.setBounds(header.removeFromLeft(80).reduced(0, 4));
+    header.removeFromLeft(20);
+    exportButton.setBounds(header.removeFromLeft(90).reduced(0, 4));
 
     area.removeFromTop(14);
 

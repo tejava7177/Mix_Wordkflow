@@ -35,8 +35,10 @@ private:
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
     juce::TextButton loopButton { "Loop" };
+    juce::TextButton exportButton { "Export" };
     juce::Label positionLabel;
     juce::Label emptyLabel;
+    std::unique_ptr<juce::FileChooser> fileChooser;
 
     juce::OwnedArray<ChannelStripComponent> strips;
     std::unique_ptr<ChannelStripComponent> masterStrip;

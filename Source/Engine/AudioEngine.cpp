@@ -191,6 +191,111 @@ double AudioEngine::getLengthSeconds() const noexcept
     return currentSampleRate > 0.0 ? session.lengthSamples / currentSampleRate : 0.0;
 }
 
+bool AudioEngine::exportMixdown(const juce::File& outputFile)
+{
+    if (session.isEmpty() || session.lengthSamples <= 0)
+        return false;
+
+    const double sr = currentSampleRate;
+    const int total = static_cast<int>(session.lengthSamples);
+    const int numCh = session.numChannels();
+    const int blockSize = 4096;
+
+    // Fresh, independent DSP so the live audio thread's state is never touched.
+    juce::dsp::ProcessSpec spec { sr, static_cast<juce::uint32>(blockSize), 2 };
+    std::vector<std::unique_ptr<EqDsp::Chain>> eqs;
+    std::vector<ChannelCompressor> comps(static_cast<size_t>(numCh));
+    for (int i = 0; i < numCh; ++i)
+    {
+        auto chain = std::make_unique<EqDsp::Chain>();
+        const EqValues eq = session.channels[static_cast<size_t>(i)]->readEq();
+        chain->get<EqDsp::HighPass>().state = EqDsp::makeHighPass(sr, eq);
+        chain->get<EqDsp::Bell>().state = EqDsp::makeBell(sr, eq);
+        chain->get<EqDsp::HighShelf>().state = EqDsp::makeHighShelf(sr, eq);
+        chain->prepare(spec);
+        chain->reset();
+        chain->setBypassed<EqDsp::HighPass>(! eq.hpOn);
+        eqs.push_back(std::move(chain));
+    }
+
+    outputFile.deleteFile();
+    auto stream = std::make_unique<juce::FileOutputStream>(outputFile);
+    if (! stream->openedOk())
+        return false;
+
+    juce::WavAudioFormat wavFormat;
+    std::unique_ptr<juce::AudioFormatWriter> writer(
+        wavFormat.createWriterFor(stream.get(), sr, 2, 24, {}, 0));
+    if (writer == nullptr)
+        return false;
+    stream.release();   // writer owns the stream now
+
+    juce::AudioBuffer<float> channelBuffer(2, blockSize);
+    juce::AudioBuffer<float> mixBuffer(2, blockSize);
+    const float masterGain = session.masterLinearGain();
+
+    for (int pos = 0; pos < total; pos += blockSize)
+    {
+        const int n = juce::jmin(blockSize, total - pos);
+        mixBuffer.clear();
+
+        for (int i = 0; i < numCh; ++i)
+        {
+            Channel& ch = *session.channels[static_cast<size_t>(i)];
+            if (ch.mute.load())
+                continue;
+
+            const int clen = ch.audio.getNumSamples();
+            const float* sL = ch.audio.getReadPointer(0);
+            const float* sR = ch.audio.getNumChannels() > 1 ? ch.audio.getReadPointer(1) : sL;
+            float* dL = channelBuffer.getWritePointer(0);
+            float* dR = channelBuffer.getWritePointer(1);
+            for (int k = 0; k < n; ++k)
+            {
+                const int p = pos + k;
+                dL[k] = p < clen ? sL[p] : 0.0f;
+                dR[k] = p < clen ? sR[p] : 0.0f;
+            }
+
+            const EqValues eq = ch.readEq();
+            if (eq.eqOn)
+            {
+                *eqs[static_cast<size_t>(i)]->get<EqDsp::HighPass>().state = *EqDsp::makeHighPass(sr, eq);
+                *eqs[static_cast<size_t>(i)]->get<EqDsp::Bell>().state = *EqDsp::makeBell(sr, eq);
+                *eqs[static_cast<size_t>(i)]->get<EqDsp::HighShelf>().state = *EqDsp::makeHighShelf(sr, eq);
+                eqs[static_cast<size_t>(i)]->setBypassed<EqDsp::HighPass>(! eq.hpOn);
+                juce::dsp::AudioBlock<float> block(channelBuffer);
+                auto sub = block.getSubBlock(0, static_cast<size_t>(n));
+                juce::dsp::ProcessContextReplacing<float> context(sub);
+                eqs[static_cast<size_t>(i)]->process(context);
+            }
+
+            const CompValues comp = ch.readComp();
+            if (comp.compOn)
+                comps[static_cast<size_t>(i)].process(dL, dR, n, comp, sr);
+
+            const float gain = ch.linearGain();
+            const float theta = (ch.pan.load() + 1.0f) * (juce::MathConstants<float>::pi * 0.25f);
+            const float leftGain = std::cos(theta) * gain;
+            const float rightGain = std::sin(theta) * gain;
+            float* mL = mixBuffer.getWritePointer(0);
+            float* mR = mixBuffer.getWritePointer(1);
+            for (int k = 0; k < n; ++k)
+            {
+                mL[k] += dL[k] * leftGain;
+                mR[k] += dR[k] * rightGain;
+            }
+        }
+
+        mixBuffer.applyGain(0, n, masterGain);
+        if (! writer->writeFromAudioSampleBuffer(mixBuffer, 0, n))
+            return false;
+    }
+
+    writer.reset();   // flush and close
+    return true;
+}
+
 void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*,
                                                    int,
                                                    float* const* outputChannelData,

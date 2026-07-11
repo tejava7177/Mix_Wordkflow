@@ -47,6 +47,11 @@ public:
     void setAnalyzedChannel(int index) noexcept { analyzedChannel.store(index); }
     bool renderSpectrum(std::vector<float>& magnitudesDb) { return analyzer.render(magnitudesDb); }
 
+    // Offline-render the current mix (EQ + compressor + fader/pan + master) to a
+    // 24-bit WAV. Uses its own DSP so it never touches the live audio state.
+    // Respects mute; ignores solo (a bounce is the full balanced mix).
+    bool exportMixdown(const juce::File& outputFile);
+
     // juce::AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
                                           int numInputChannels,
