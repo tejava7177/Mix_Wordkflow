@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../Domain/Channel.h"
@@ -15,6 +17,9 @@ public:
 
     // Point the editor at a channel (nullptr shows a placeholder).
     void setChannel(Channel* channel, juce::Colour accent, double sampleRate);
+
+    // Push a new analyzer frame (magnitudes in dBFS) to draw behind the curve.
+    void setSpectrum(const std::vector<float>& magnitudesDb, double analyzerSampleRate);
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -37,6 +42,9 @@ private:
     juce::Label hpFreqL, bellFreqL, bellGainL, bellQL, shelfFreqL, shelfGainL;
 
     juce::Rectangle<int> curveArea;
+
+    std::vector<float> spectrum;       // smoothed magnitudes (dBFS)
+    double spectrumSampleRate { 48000.0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EqEditorComponent)
 };

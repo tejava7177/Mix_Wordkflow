@@ -10,6 +10,7 @@
 
 #include "../Domain/Session.h"
 #include "EqDsp.h"
+#include "SpectrumAnalyzer.h"
 
 // Owns the audio device and mixes the loaded stems in real time.
 //
@@ -39,6 +40,11 @@ public:
 
     [[nodiscard]] double getPositionSeconds() const noexcept;
     [[nodiscard]] double getLengthSeconds() const noexcept;
+    [[nodiscard]] double getSampleRate() const noexcept { return currentSampleRate; }
+
+    // Spectrum analyzer for the currently selected channel (post-EQ output signal).
+    void setAnalyzedChannel(int index) noexcept { analyzedChannel.store(index); }
+    bool renderSpectrum(std::vector<float>& magnitudesDb) { return analyzer.render(magnitudesDb); }
 
     // juce::AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
@@ -63,6 +69,10 @@ private:
     std::vector<EqValues> lastEqValues;  // cache so coeffs rebuild only on change
     juce::AudioBuffer<float> scratch;    // one channel's block, reused
     int currentBlockSize { 512 };
+
+    SpectrumAnalyzer analyzer;
+    std::atomic<int> analyzedChannel { 0 };
+    std::vector<float> analyzerMono;     // reused mono buffer for the analyzed channel
 
     std::atomic<bool> playing { false };
     std::atomic<bool> looping { true };

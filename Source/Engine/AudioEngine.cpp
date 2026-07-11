@@ -134,6 +134,7 @@ void AudioEngine::prepareDsp(double sampleRate, int blockSize)
     currentBlockSize = juce::jmax(blockSize, 512);
     const int scratchSize = juce::jmax(currentBlockSize, 2048);
     scratch.setSize(2, scratchSize);
+    analyzerMono.resize(static_cast<size_t>(scratchSize));
 
     juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(scratchSize), 2 };
     for (size_t i = 0; i < channelEq.size(); ++i)
@@ -257,6 +258,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*,
             auto sub = block.getSubBlock(0, static_cast<size_t>(numSamples));
             juce::dsp::ProcessContextReplacing<float> context(sub);
             chain.process(context);
+        }
+
+        // Feed the analyzer with this channel's POST-EQ signal, so the spectrum
+        // visibly changes as the user adjusts the EQ.
+        if (i == analyzedChannel.load() && numSamples <= static_cast<int>(analyzerMono.size()))
+        {
+            for (int n = 0; n < numSamples; ++n)
+                analyzerMono[static_cast<size_t>(n)] = 0.5f * (dstL[n] + dstR[n]);
+            analyzer.pushBlock(analyzerMono.data(), numSamples);
         }
 
         // Fader, pan, sum, meter.

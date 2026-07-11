@@ -62,6 +62,18 @@ void EqEditorComponent::setChannel(Channel* channelToEdit, juce::Colour accent, 
 
     if (has)
         pullFromChannel();
+    spectrum.clear();
+    repaint();
+}
+
+void EqEditorComponent::setSpectrum(const std::vector<float>& magnitudesDb, double analyzerSampleRate)
+{
+    spectrumSampleRate = analyzerSampleRate > 0.0 ? analyzerSampleRate : 48000.0;
+    if (spectrum.size() != magnitudesDb.size())
+        spectrum = magnitudesDb;
+    else
+        for (size_t i = 0; i < magnitudesDb.size(); ++i)
+            spectrum[i] = spectrum[i] * 0.7f + magnitudesDb[i] * 0.3f;  // smooth
     repaint();
 }
 
@@ -124,6 +136,38 @@ void EqEditorComponent::paint(juce::Graphics& g)
     {
         return juce::jmap((float) db, kDbRange, -kDbRange, top, bottom);
     };
+
+    // live spectrum of the channel's input, drawn behind everything
+    if (! spectrum.empty())
+    {
+        const int bins = (int) spectrum.size();
+        const double fftSize = 2.0 * bins;
+        auto specToY = [&](float db)
+        {
+            return juce::jmap(juce::jlimit(-90.0f, 0.0f, db), -90.0f, 0.0f, bottom, top);
+        };
+        juce::Path spec;
+        bool started = false;
+        for (int i = 1; i < bins; ++i)
+        {
+            const double freq = i * spectrumSampleRate / fftSize;
+            if (freq < kMinFreq)
+                continue;
+            if (freq > kMaxFreq)
+                break;
+            const float x = freqToX(freq);
+            const float y = specToY(spectrum[(size_t) i]);
+            if (! started) { spec.startNewSubPath(x, bottom); spec.lineTo(x, y); started = true; }
+            else spec.lineTo(x, y);
+        }
+        if (started)
+        {
+            spec.lineTo(right, bottom);
+            spec.closeSubPath();
+            g.setColour(accentColour.withAlpha(0.16f));
+            g.fillPath(spec);
+        }
+    }
 
     // grid: 0 dB line + freq guides
     g.setColour(juce::Colour::fromRGB(48, 56, 68));

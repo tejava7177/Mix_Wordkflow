@@ -131,6 +131,8 @@ void MainComponent::selectChannel(int index)
     for (int i = 0; i < strips.size(); ++i)
         strips[i]->setSelected(i == index);
 
+    engine.setAnalyzedChannel(index);
+
     auto& session = engine.getSession();
     if (index >= 0 && index < session.numChannels())
     {
@@ -149,6 +151,9 @@ void MainComponent::timerCallback()
         strip->refreshMeter();
     if (masterStrip != nullptr)
         masterStrip->refreshMeter();
+
+    if (engine.renderSpectrum(spectrumBuffer))
+        eqEditor.setSpectrum(spectrumBuffer, engine.getSampleRate());
 
     positionLabel.setText(formatTime(engine.getPositionSeconds()) + " / "
                               + formatTime(engine.getLengthSeconds()),
