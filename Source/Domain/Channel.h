@@ -29,6 +29,18 @@ inline bool operator==(const EqValues& a, const EqValues& b) noexcept
 
 inline bool operator!=(const EqValues& a, const EqValues& b) noexcept { return ! (a == b); }
 
+// A plain snapshot of a channel's compressor settings.
+struct CompValues
+{
+    bool  compOn { false };
+    bool  autoGain { true };   // level-match the output so the effect is audible
+    float thresholdDb { -18.0f };
+    float ratio { 2.0f };
+    float attackMs { 10.0f };
+    float releaseMs { 120.0f };
+    float makeupDb { 0.0f };
+};
+
 // One mixer channel: a loaded stem plus its real-time-controllable state.
 //
 // The user-controlled parameters and the meter read-outs are atomics so the UI
@@ -62,9 +74,19 @@ struct Channel
     std::atomic<float> shelfFreq { 6000.0f };
     std::atomic<float> shelfGainDb { 0.0f };
 
+    // Compressor parameters (message thread writes, audio thread reads).
+    std::atomic<bool>  compOn { false };
+    std::atomic<bool>  compAutoGain { true };
+    std::atomic<float> compThresholdDb { -18.0f };
+    std::atomic<float> compRatio { 2.0f };
+    std::atomic<float> compAttackMs { 10.0f };
+    std::atomic<float> compReleaseMs { 120.0f };
+    std::atomic<float> compMakeupDb { 0.0f };
+
     // Metering (audio thread writes, UI reads). Linear peak per block, 0..1+.
     std::atomic<float> meterPeakL { 0.0f };
     std::atomic<float> meterPeakR { 0.0f };
+    std::atomic<float> meterGrDb { 0.0f };  // compressor gain reduction (>= 0 dB)
 
     [[nodiscard]] float linearGain() const noexcept
     {
@@ -76,6 +98,12 @@ struct Channel
         return { eqOn.load(), hpOn.load(), hpFreq.load(),
                  bellFreq.load(), bellGainDb.load(), bellQ.load(),
                  shelfFreq.load(), shelfGainDb.load() };
+    }
+
+    [[nodiscard]] CompValues readComp() const noexcept
+    {
+        return { compOn.load(), compAutoGain.load(), compThresholdDb.load(), compRatio.load(),
+                 compAttackMs.load(), compReleaseMs.load(), compMakeupDb.load() };
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Channel)

@@ -67,6 +67,7 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
     stop();
     session.clear();
     channelEq.clear();
+    channelComp.clear();
     lastEqValues.clear();
     playhead.store(0);
 
@@ -93,6 +94,7 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
         sourceRate = reader->sampleRate;
         session.channels.push_back(std::move(channel));
         channelEq.push_back(std::make_unique<EqDsp::Chain>());
+        channelComp.emplace_back();
         lastEqValues.push_back(staleEqSentinel());
         ++index;
     }
@@ -152,6 +154,8 @@ void AudioEngine::prepareDsp(double sampleRate, int blockSize)
         chain.reset();
         chain.setBypassed<EqDsp::HighPass>(! eq.hpOn);
     }
+    for (auto& comp : channelComp)
+        comp.reset();
     std::fill(lastEqValues.begin(), lastEqValues.end(), staleEqSentinel());
 }
 
@@ -260,8 +264,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*,
             chain.process(context);
         }
 
-        // Feed the analyzer with this channel's POST-EQ signal, so the spectrum
-        // visibly changes as the user adjusts the EQ.
+        // Compressor (after EQ), with exact gain reduction for the meter.
+        const CompValues comp = channel.readComp();
+        float grDb = 0.0f;
+        if (comp.compOn)
+            grDb = channelComp[static_cast<size_t>(i)].process(dstL, dstR, numSamples, comp, currentSampleRate);
+        channel.meterGrDb.store(grDb);
+
+        // Feed the analyzer with this channel's fully processed signal (post EQ +
+        // compressor), so the spectrum reflects everything the user changes.
         if (i == analyzedChannel.load() && numSamples <= static_cast<int>(analyzerMono.size()))
         {
             for (int n = 0; n < numSamples; ++n)

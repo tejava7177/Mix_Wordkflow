@@ -9,6 +9,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include "../Domain/Session.h"
+#include "Compressor.h"
 #include "EqDsp.h"
 #include "SpectrumAnalyzer.h"
 
@@ -64,8 +65,9 @@ private:
     juce::AudioFormatManager formatManager;
     Session session;
 
-    // Per-channel EQ processing state, parallel to session.channels.
+    // Per-channel processing state, parallel to session.channels.
     std::vector<std::unique_ptr<EqDsp::Chain>> channelEq;
+    std::vector<ChannelCompressor> channelComp;
     std::vector<EqValues> lastEqValues;  // cache so coeffs rebuild only on change
     juce::AudioBuffer<float> scratch;    // one channel's block, reused
     int currentBlockSize { 512 };

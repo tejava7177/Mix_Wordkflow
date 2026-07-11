@@ -47,10 +47,11 @@ MainComponent::MainComponent()
     addChildComponent(emptyLabel);
 
     addAndMakeVisible(eqEditor);
+    addAndMakeVisible(compEditor);
 
     loadDemoSession();
 
-    setSize(1200, 760);
+    setSize(1240, 900);
     startTimerHz(30);
 }
 
@@ -138,10 +139,12 @@ void MainComponent::selectChannel(int index)
     {
         auto* ch = session.channels[static_cast<size_t>(index)].get();
         eqEditor.setChannel(ch, ch->colour, session.sampleRate);
+        compEditor.setChannel(ch, ch->colour);
     }
     else
     {
         eqEditor.setChannel(nullptr, juce::Colours::teal, session.sampleRate);
+        compEditor.setChannel(nullptr, juce::Colours::teal);
     }
 }
 
@@ -154,6 +157,7 @@ void MainComponent::timerCallback()
 
     if (engine.renderSpectrum(spectrumBuffer))
         eqEditor.setSpectrum(spectrumBuffer, engine.getSampleRate());
+    compEditor.refreshMeter();
 
     positionLabel.setText(formatTime(engine.getPositionSeconds()) + " / "
                               + formatTime(engine.getLengthSeconds()),
@@ -205,7 +209,10 @@ void MainComponent::resized()
         console.removeFromLeft(4);
     }
 
-    // remaining middle area holds the EQ editor for the selected channel
+    // remaining middle area holds the EQ editor (top) and compressor (bottom)
     console.removeFromLeft(12);
+    auto compArea = console.removeFromBottom(210);
+    console.removeFromBottom(8);
     eqEditor.setBounds(console);
+    compEditor.setBounds(compArea);
 }

@@ -40,8 +40,8 @@ private:
         {
             setUsingNativeTitleBar(true);
             setContentOwned(new MainComponent(), true);
-            setResizeLimits(1000, 720, 1800, 1200);
-            centreWithSize(1200, 820);
+            setResizeLimits(1100, 820, 1900, 1300);
+            centreWithSize(1240, 920);
             setResizable(true, true);
             setVisible(true);
         }

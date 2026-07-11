@@ -7,6 +7,7 @@
 
 #include "Engine/AudioEngine.h"
 #include "UI/ChannelStripComponent.h"
+#include "UI/CompressorEditorComponent.h"
 #include "UI/EqEditorComponent.h"
 
 // Phase 1 console: loads a demo session, plays all stems in sync, and exposes a
@@ -40,6 +41,7 @@ private:
     juce::OwnedArray<ChannelStripComponent> strips;
     std::unique_ptr<ChannelStripComponent> masterStrip;
     EqEditorComponent eqEditor;
+    CompressorEditorComponent compEditor;
     std::vector<float> spectrumBuffer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
