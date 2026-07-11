@@ -29,14 +29,21 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent& event) override;
 
     // Called from the UI timer to refresh the meter.
     void refreshMeter();
+
+    void setSelected(bool shouldBeSelected);
+
+    // Fired when the strip is clicked (used to select it for editing).
+    std::function<void()> onSelect;
 
 private:
     void updateDbLabel();
 
     Binding binding;
+    bool selected { false };
 
     juce::Label nameLabel;
     juce::Label roleLabel;

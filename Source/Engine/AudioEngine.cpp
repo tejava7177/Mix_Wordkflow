@@ -33,6 +33,15 @@ void resampleChannel(juce::AudioBuffer<float>& buffer, double fromRate, double t
 
     buffer = std::move(resampled);
 }
+
+// A sentinel that never equals real Eq values, so the first block always builds
+// coefficients.
+EqValues staleEqSentinel()
+{
+    EqValues v;
+    v.hpFreq = -1.0f;
+    return v;
+}
 } // namespace
 
 AudioEngine::AudioEngine()
@@ -42,7 +51,10 @@ AudioEngine::AudioEngine()
     deviceManager.addAudioCallback(this);
 
     if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
         currentSampleRate = device->getCurrentSampleRate();
+        currentBlockSize = device->getCurrentBufferSizeSamples();
+    }
 }
 
 AudioEngine::~AudioEngine()
@@ -54,6 +66,8 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
 {
     stop();
     session.clear();
+    channelEq.clear();
+    lastEqValues.clear();
     playhead.store(0);
 
     int maxLength = 0;
@@ -78,6 +92,8 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
         maxLength = juce::jmax(maxLength, length);
         sourceRate = reader->sampleRate;
         session.channels.push_back(std::move(channel));
+        channelEq.push_back(std::make_unique<EqDsp::Chain>());
+        lastEqValues.push_back(staleEqSentinel());
         ++index;
     }
 
@@ -88,8 +104,8 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
     session.lengthSamples = maxLength;
     stemSampleRate = sourceRate;
 
-    // Match whatever rate the device is currently running at.
     prepareBuffersForSampleRate(currentSampleRate);
+    prepareDsp(currentSampleRate, currentBlockSize);
     return session.numChannels();
 }
 
@@ -111,6 +127,31 @@ void AudioEngine::prepareBuffersForSampleRate(double sampleRate)
     session.lengthSamples = maxLength;
     if (playhead.load() >= maxLength)
         playhead.store(0);
+}
+
+void AudioEngine::prepareDsp(double sampleRate, int blockSize)
+{
+    currentBlockSize = juce::jmax(blockSize, 512);
+    const int scratchSize = juce::jmax(currentBlockSize, 2048);
+    scratch.setSize(2, scratchSize);
+
+    juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(scratchSize), 2 };
+    for (size_t i = 0; i < channelEq.size(); ++i)
+    {
+        auto& chain = *channelEq[i];
+        const EqValues eq = session.channels[i]->readEq();
+
+        // Seed coefficients BEFORE prepare so the duplicator's per-channel filters
+        // are created referencing a valid coefficients object. Afterwards we only
+        // ever update those coefficients in place (see the callback).
+        chain.get<EqDsp::HighPass>().state = EqDsp::makeHighPass(sampleRate, eq);
+        chain.get<EqDsp::Bell>().state = EqDsp::makeBell(sampleRate, eq);
+        chain.get<EqDsp::HighShelf>().state = EqDsp::makeHighShelf(sampleRate, eq);
+        chain.prepare(spec);
+        chain.reset();
+        chain.setBypassed<EqDsp::HighPass>(! eq.hpOn);
+    }
+    std::fill(lastEqValues.begin(), lastEqValues.end(), staleEqSentinel());
 }
 
 void AudioEngine::play()
@@ -162,7 +203,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*,
     float* outL = outputChannelData[0];
     float* outR = numOutputChannels > 1 && outputChannelData[1] != nullptr ? outputChannelData[1] : outL;
 
-    if (! playing.load() || session.isEmpty())
+    const bool active = playing.load() && ! session.isEmpty() && numSamples <= scratch.getNumSamples();
+    if (! active)
     {
         for (auto& channel : session.channels)
         {
@@ -178,52 +220,79 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*,
     const int length = static_cast<int>(session.lengthSamples);
     const bool anySolo = session.anyChannelSoloed();
 
-    for (auto& channel : session.channels)
+    for (int i = 0; i < session.numChannels(); ++i)
     {
-        const bool audible = ! channel->mute.load() && (! anySolo || channel->solo.load());
-        const float gain = channel->linearGain();
-        const float theta = (channel->pan.load() + 1.0f) * (juce::MathConstants<float>::pi * 0.25f);
+        Channel& channel = *session.channels[static_cast<size_t>(i)];
+
+        // Copy this channel's block into the scratch buffer (zero-padded past its end).
+        const int channelLength = channel.audio.getNumSamples();
+        const float* srcL = channel.audio.getReadPointer(0);
+        const float* srcR = channel.audio.getNumChannels() > 1 ? channel.audio.getReadPointer(1) : srcL;
+        float* dstL = scratch.getWritePointer(0);
+        float* dstR = scratch.getWritePointer(1);
+        for (int n = 0; n < numSamples; ++n)
+        {
+            const int pos = startPos + n;
+            const bool inRange = pos < channelLength;
+            dstL[n] = inRange ? srcL[pos] : 0.0f;
+            dstR[n] = inRange ? srcR[pos] : 0.0f;
+        }
+
+        // EQ: rebuild coefficients only when the parameters changed.
+        const EqValues eq = channel.readEq();
+        auto& chain = *channelEq[static_cast<size_t>(i)];
+        if (eq != lastEqValues[static_cast<size_t>(i)])
+        {
+            // Update coefficients IN PLACE so the duplicator's per-channel filters
+            // (which share these objects) pick up the change.
+            *chain.get<EqDsp::HighPass>().state = *EqDsp::makeHighPass(currentSampleRate, eq);
+            *chain.get<EqDsp::Bell>().state = *EqDsp::makeBell(currentSampleRate, eq);
+            *chain.get<EqDsp::HighShelf>().state = *EqDsp::makeHighShelf(currentSampleRate, eq);
+            chain.setBypassed<EqDsp::HighPass>(! eq.hpOn);
+            lastEqValues[static_cast<size_t>(i)] = eq;
+        }
+        if (eq.eqOn)
+        {
+            juce::dsp::AudioBlock<float> block(scratch);
+            auto sub = block.getSubBlock(0, static_cast<size_t>(numSamples));
+            juce::dsp::ProcessContextReplacing<float> context(sub);
+            chain.process(context);
+        }
+
+        // Fader, pan, sum, meter.
+        const bool audible = ! channel.mute.load() && (! anySolo || channel.solo.load());
+        const float gain = channel.linearGain();
+        const float theta = (channel.pan.load() + 1.0f) * (juce::MathConstants<float>::pi * 0.25f);
         const float leftGain = std::cos(theta) * gain;
         const float rightGain = std::sin(theta) * gain;
 
-        const int channelLength = channel->audio.getNumSamples();
-        const float* srcL = channel->audio.getReadPointer(0);
-        const float* srcR = channel->audio.getNumChannels() > 1 ? channel->audio.getReadPointer(1) : srcL;
-
         float peakL = 0.0f;
         float peakR = 0.0f;
-
-        for (int i = 0; i < numSamples; ++i)
+        for (int n = 0; n < numSamples; ++n)
         {
-            const int pos = startPos + i;
-            if (pos >= channelLength)
-                break;
-
-            const float sampleL = srcL[pos] * leftGain;
-            const float sampleR = srcR[pos] * rightGain;
-
+            const float sampleL = dstL[n] * leftGain;
+            const float sampleR = dstR[n] * rightGain;
             if (audible)
             {
-                outL[i] += sampleL;
-                outR[i] += sampleR;
+                outL[n] += sampleL;
+                outR[n] += sampleR;
                 peakL = juce::jmax(peakL, std::abs(sampleL));
                 peakR = juce::jmax(peakR, std::abs(sampleR));
             }
         }
-
-        channel->meterPeakL.store(peakL);
-        channel->meterPeakR.store(peakR);
+        channel.meterPeakL.store(peakL);
+        channel.meterPeakR.store(peakR);
     }
 
     const float masterGain = session.masterLinearGain();
     float masterPeakL = 0.0f;
     float masterPeakR = 0.0f;
-    for (int i = 0; i < numSamples; ++i)
+    for (int n = 0; n < numSamples; ++n)
     {
-        outL[i] *= masterGain;
-        outR[i] *= masterGain;
-        masterPeakL = juce::jmax(masterPeakL, std::abs(outL[i]));
-        masterPeakR = juce::jmax(masterPeakR, std::abs(outR[i]));
+        outL[n] *= masterGain;
+        outR[n] *= masterGain;
+        masterPeakL = juce::jmax(masterPeakL, std::abs(outL[n]));
+        masterPeakR = juce::jmax(masterPeakR, std::abs(outR[n]));
     }
     session.masterMeterPeakL.store(masterPeakL);
     session.masterMeterPeakR.store(masterPeakR);
@@ -244,8 +313,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*,
 
 void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
 {
-    if (device != nullptr)
-        prepareBuffersForSampleRate(device->getCurrentSampleRate());
+    if (device == nullptr)
+        return;
+
+    currentBlockSize = device->getCurrentBufferSizeSamples();
+    prepareBuffersForSampleRate(device->getCurrentSampleRate());
+    prepareDsp(device->getCurrentSampleRate(), currentBlockSize);
 }
 
 void AudioEngine::audioDeviceStopped()

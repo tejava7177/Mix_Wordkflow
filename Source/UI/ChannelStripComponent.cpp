@@ -3,6 +3,10 @@
 ChannelStripComponent::ChannelStripComponent(Binding bindingToUse)
     : binding(std::move(bindingToUse))
 {
+    // Receive mouse-downs from all child controls too, so clicking anywhere on the
+    // strip (fader, buttons, labels) selects the channel for editing.
+    addMouseListener(this, true);
+
     nameLabel.setText(binding.name, juce::dontSendNotification);
     nameLabel.setJustificationType(juce::Justification::centred);
     nameLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
@@ -84,10 +88,31 @@ void ChannelStripComponent::paint(juce::Graphics& g)
     g.setColour(juce::Colour::fromRGB(30, 36, 45));
     g.fillRoundedRectangle(bounds, 6.0f);
 
+    if (selected)
+    {
+        g.setColour(binding.colour.withAlpha(0.9f));
+        g.drawRoundedRectangle(bounds.reduced(1.0f), 6.0f, 2.0f);
+    }
+
     // colour tab at the top
     auto tab = bounds.removeFromTop(5.0f).reduced(6.0f, 0.0f);
     g.setColour(binding.colour);
     g.fillRoundedRectangle(tab.withY(bounds.getY() - 3.0f).withHeight(4.0f), 2.0f);
+}
+
+void ChannelStripComponent::mouseDown(const juce::MouseEvent&)
+{
+    if (onSelect != nullptr)
+        onSelect();
+}
+
+void ChannelStripComponent::setSelected(bool shouldBeSelected)
+{
+    if (selected != shouldBeSelected)
+    {
+        selected = shouldBeSelected;
+        repaint();
+    }
 }
 
 void ChannelStripComponent::resized()

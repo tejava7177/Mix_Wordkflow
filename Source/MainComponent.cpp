@@ -46,6 +46,8 @@ MainComponent::MainComponent()
     emptyLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(200, 120, 120));
     addChildComponent(emptyLabel);
 
+    addAndMakeVisible(eqEditor);
+
     loadDemoSession();
 
     setSize(1200, 760);
@@ -103,7 +105,9 @@ void MainComponent::rebuildStrips()
         b.meterL = &channel->meterPeakL;
         b.meterR = &channel->meterPeakR;
 
+        const int index = strips.size();
         auto* strip = new ChannelStripComponent(b);
+        strip->onSelect = [this, index] { selectChannel(index); };
         addAndMakeVisible(strip);
         strips.add(strip);
     }
@@ -117,7 +121,26 @@ void MainComponent::rebuildStrips()
     masterStrip = std::make_unique<ChannelStripComponent>(mb);
     addAndMakeVisible(*masterStrip);
 
+    selectChannel(session.numChannels() > 0 ? 0 : -1);
     resized();
+}
+
+void MainComponent::selectChannel(int index)
+{
+    selectedIndex = index;
+    for (int i = 0; i < strips.size(); ++i)
+        strips[i]->setSelected(i == index);
+
+    auto& session = engine.getSession();
+    if (index >= 0 && index < session.numChannels())
+    {
+        auto* ch = session.channels[static_cast<size_t>(index)].get();
+        eqEditor.setChannel(ch, ch->colour, session.sampleRate);
+    }
+    else
+    {
+        eqEditor.setChannel(nullptr, juce::Colours::teal, session.sampleRate);
+    }
 }
 
 void MainComponent::timerCallback()
@@ -176,4 +199,8 @@ void MainComponent::resized()
         strip->setBounds(console.removeFromLeft(stripWidth));
         console.removeFromLeft(4);
     }
+
+    // remaining middle area holds the EQ editor for the selected channel
+    console.removeFromLeft(12);
+    eqEditor.setBounds(console);
 }

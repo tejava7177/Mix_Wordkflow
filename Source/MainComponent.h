@@ -6,6 +6,7 @@
 
 #include "Engine/AudioEngine.h"
 #include "UI/ChannelStripComponent.h"
+#include "UI/EqEditorComponent.h"
 
 // Phase 1 console: loads a demo session, plays all stems in sync, and exposes a
 // channel strip (fader / pan / mute / solo / meter) per stem plus a master strip.
@@ -22,9 +23,11 @@ public:
 private:
     void loadDemoSession();
     void rebuildStrips();
+    void selectChannel(int index);
     void timerCallback() override;
 
     AudioEngine engine;
+    int selectedIndex { -1 };
 
     juce::Label titleLabel;
     juce::TextButton playButton { "Play" };
@@ -35,6 +38,7 @@ private:
 
     juce::OwnedArray<ChannelStripComponent> strips;
     std::unique_ptr<ChannelStripComponent> masterStrip;
+    EqEditorComponent eqEditor;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

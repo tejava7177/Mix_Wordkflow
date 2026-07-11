@@ -36,6 +36,7 @@ target_sources(MixMentor
         Source/MainComponent.cpp
         Source/Engine/AudioEngine.cpp
         Source/UI/ChannelStripComponent.cpp
+        Source/UI/EqEditorComponent.cpp
 )
 
 target_include_directories(MixMentor

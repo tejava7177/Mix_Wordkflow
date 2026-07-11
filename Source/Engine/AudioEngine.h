@@ -2,10 +2,14 @@
 
 #include <atomic>
 
+#include <memory>
+#include <vector>
+
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include "../Domain/Session.h"
+#include "EqDsp.h"
 
 // Owns the audio device and mixes the loaded stems in real time.
 //
@@ -48,10 +52,17 @@ public:
 
 private:
     void prepareBuffersForSampleRate(double sampleRate);
+    void prepareDsp(double sampleRate, int blockSize);
 
     juce::AudioDeviceManager deviceManager;
     juce::AudioFormatManager formatManager;
     Session session;
+
+    // Per-channel EQ processing state, parallel to session.channels.
+    std::vector<std::unique_ptr<EqDsp::Chain>> channelEq;
+    std::vector<EqValues> lastEqValues;  // cache so coeffs rebuild only on change
+    juce::AudioBuffer<float> scratch;    // one channel's block, reused
+    int currentBlockSize { 512 };
 
     std::atomic<bool> playing { false };
     std::atomic<bool> looping { true };
