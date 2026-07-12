@@ -12,6 +12,7 @@ public:
     CompressorEditorComponent();
 
     void setChannel(Channel* channel, juce::Colour accent);
+    void refresh();        // re-read channel values into the controls
     void refreshMeter();   // called from the UI timer
 
     void paint(juce::Graphics& g) override;

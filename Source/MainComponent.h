@@ -6,9 +6,12 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #include "Engine/AudioEngine.h"
+#include "Guidance/MixStage.h"
+#include "Guidance/Recommendation.h"
 #include "UI/ChannelStripComponent.h"
 #include "UI/CompressorEditorComponent.h"
 #include "UI/EqEditorComponent.h"
+#include "UI/GuidedPanelComponent.h"
 
 // Phase 1 console: loads a demo session, plays all stems in sync, and exposes a
 // channel strip (fader / pan / mute / solo / meter) per stem plus a master strip.
@@ -26,19 +29,31 @@ private:
     void loadDemoSession();
     void rebuildStrips();
     void selectChannel(int index);
+    void applyRecommendation(int index);
     void timerCallback() override;
+
+    void setGuided(bool shouldBeGuided);
+    void updateGuidedPanel();
+    void advanceStage(int delta);
 
     AudioEngine engine;
     int selectedIndex { -1 };
+
+    std::vector<MixStage> stages { makeMixStages() };
+    bool guidedMode { false };
+    int stageIndex { 0 };
+    juce::Rectangle<int> stripsRegion;
 
     juce::Label titleLabel;
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
     juce::TextButton loopButton { "Loop" };
     juce::TextButton exportButton { "Export" };
+    juce::TextButton guidedButton { "Guided" };
     juce::Label positionLabel;
     juce::Label emptyLabel;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    GuidedPanelComponent guidedPanel;
 
     juce::OwnedArray<ChannelStripComponent> strips;
     std::unique_ptr<ChannelStripComponent> masterStrip;

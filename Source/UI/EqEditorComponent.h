@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <vector>
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -21,6 +22,13 @@ public:
     // Push a new analyzer frame (magnitudes in dBFS) to draw behind the curve.
     void setSpectrum(const std::vector<float>& magnitudesDb, double analyzerSampleRate);
 
+    // Re-read the channel's values into the controls (after external changes).
+    void refresh();
+    // Set the plain-language reason / warning line under the title.
+    void setReason(const juce::String& text);
+
+    std::function<void()> onSuggest;   // fired by the "Suggest" button
+
     void paint(juce::Graphics& g) override;
     void resized() override;
 
@@ -35,6 +43,8 @@ private:
     double sampleRate { 48000.0 };
 
     juce::Label titleLabel;
+    juce::TextButton suggestButton { "Suggest" };
+    juce::Label reasonLabel;
     juce::ToggleButton eqOnButton { "EQ on" };
     juce::ToggleButton hpOnButton { "High-pass" };
 

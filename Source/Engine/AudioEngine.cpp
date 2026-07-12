@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "StemAnalysis.h"
+
 namespace
 {
 const juce::Colour kPalette[] = {
@@ -89,6 +91,7 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
         channel->sourceSampleRate = reader->sampleRate;
         channel->role = guessRoleFromName(channel->name);
         channel->colour = kPalette[index % static_cast<int>(juce::numElementsInArray(kPalette))];
+        channel->analysis = analyzeStem(channel->audio, reader->sampleRate);
 
         maxLength = juce::jmax(maxLength, length);
         sourceRate = reader->sampleRate;

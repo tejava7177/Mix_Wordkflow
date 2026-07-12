@@ -62,6 +62,16 @@ MainComponent::MainComponent()
     };
     addAndMakeVisible(exportButton);
 
+    guidedButton.setClickingTogglesState(true);
+    guidedButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour::fromRGB(232, 176, 75));
+    guidedButton.onClick = [this] { setGuided(guidedButton.getToggleState()); };
+    addAndMakeVisible(guidedButton);
+
+    guidedPanel.onBack = [this] { advanceStage(-1); };
+    guidedPanel.onNext = [this] { advanceStage(1); };
+    guidedPanel.onExit = [this] { setGuided(false); };
+    addChildComponent(guidedPanel);
+
     positionLabel.setJustificationType(juce::Justification::centredRight);
     positionLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(165, 178, 194));
     addAndMakeVisible(positionLabel);
@@ -72,6 +82,7 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(eqEditor);
     addAndMakeVisible(compEditor);
+    eqEditor.onSuggest = [this] { applyRecommendation(selectedIndex); };
 
     loadDemoSession();
 
@@ -164,12 +175,92 @@ void MainComponent::selectChannel(int index)
         auto* ch = session.channels[static_cast<size_t>(index)].get();
         eqEditor.setChannel(ch, ch->colour, session.sampleRate);
         compEditor.setChannel(ch, ch->colour);
+
+        // Surface an import warning, or the role hint, under the EQ title.
+        if (ch->analysis.clipping)
+            eqEditor.setReason("Note: this track peaks very hot - lower its fader or it may distort.");
+        else if (ch->analysis.valid && ch->analysis.loudnessDb < -32.0f)
+            eqEditor.setReason("Note: this track is quite quiet - you may need to raise its fader.");
+        else
+            eqEditor.setReason("Click Suggest for a starting EQ and compression for this " + toDisplayString(ch->role).toLowerCase() + ".");
     }
     else
     {
         eqEditor.setChannel(nullptr, juce::Colours::teal, session.sampleRate);
         compEditor.setChannel(nullptr, juce::Colours::teal);
     }
+}
+
+void MainComponent::applyRecommendation(int index)
+{
+    auto& session = engine.getSession();
+    if (index < 0 || index >= session.numChannels())
+        return;
+
+    auto* ch = session.channels[static_cast<size_t>(index)].get();
+    const Recommendation rec = recommend(ch->role, ch->analysis);
+
+    ch->eqOn.store(rec.eq.eqOn);
+    ch->hpOn.store(rec.eq.hpOn);
+    ch->hpFreq.store(rec.eq.hpFreq);
+    ch->bellFreq.store(rec.eq.bellFreq);
+    ch->bellGainDb.store(rec.eq.bellGainDb);
+    ch->bellQ.store(rec.eq.bellQ);
+    ch->shelfFreq.store(rec.eq.shelfFreq);
+    ch->shelfGainDb.store(rec.eq.shelfGainDb);
+
+    ch->compOn.store(rec.comp.compOn);
+    ch->compAutoGain.store(rec.comp.autoGain);
+    ch->compThresholdDb.store(rec.comp.thresholdDb);
+    ch->compRatio.store(rec.comp.ratio);
+    ch->compAttackMs.store(rec.comp.attackMs);
+    ch->compReleaseMs.store(rec.comp.releaseMs);
+    ch->compMakeupDb.store(rec.comp.makeupDb);
+
+    eqEditor.refresh();
+    compEditor.refresh();
+    eqEditor.setReason(rec.reason);
+}
+
+void MainComponent::setGuided(bool shouldBeGuided)
+{
+    guidedMode = shouldBeGuided;
+    guidedButton.setToggleState(shouldBeGuided, juce::dontSendNotification);
+    guidedPanel.setVisible(shouldBeGuided);
+    if (shouldBeGuided)
+    {
+        stageIndex = 0;
+        updateGuidedPanel();
+    }
+    resized();
+    repaint();
+}
+
+void MainComponent::updateGuidedPanel()
+{
+    if (stages.empty())
+        return;
+    stageIndex = juce::jlimit(0, static_cast<int>(stages.size()) - 1, stageIndex);
+    guidedPanel.setStage(stageIndex, static_cast<int>(stages.size()), stages[static_cast<size_t>(stageIndex)]);
+
+    const auto region = stages[static_cast<size_t>(stageIndex)].region;
+    if ((region == StageRegion::Eq || region == StageRegion::Compressor)
+        && selectedIndex < 0 && engine.getSession().numChannels() > 0)
+        selectChannel(0);
+
+    repaint();
+}
+
+void MainComponent::advanceStage(int delta)
+{
+    const int next = stageIndex + delta;
+    if (next >= static_cast<int>(stages.size()))
+    {
+        setGuided(false);   // finished the walkthrough
+        return;
+    }
+    stageIndex = juce::jmax(0, next);
+    updateGuidedPanel();
 }
 
 void MainComponent::timerCallback()
@@ -196,6 +287,25 @@ void MainComponent::paint(juce::Graphics& g)
     auto area = getLocalBounds().reduced(16);
     g.setColour(juce::Colour::fromRGB(28, 33, 41));
     g.fillRoundedRectangle(area.toFloat(), 14.0f);
+
+    // guided mode: highlight the region for the current stage
+    if (guidedMode && ! stages.empty())
+    {
+        juce::Rectangle<int> region;
+        switch (stages[static_cast<size_t>(stageIndex)].region)
+        {
+            case StageRegion::Strips:     region = stripsRegion; break;
+            case StageRegion::Eq:         region = eqEditor.getBounds(); break;
+            case StageRegion::Compressor: region = compEditor.getBounds(); break;
+            case StageRegion::Master:     if (masterStrip != nullptr) region = masterStrip->getBounds(); break;
+            case StageRegion::Export:     region = exportButton.getBounds(); break;
+        }
+        if (! region.isEmpty())
+        {
+            g.setColour(juce::Colour::fromRGB(232, 176, 75));
+            g.drawRoundedRectangle(region.toFloat().expanded(3.0f), 9.0f, 2.5f);
+        }
+    }
 }
 
 void MainComponent::resized()
@@ -213,8 +323,16 @@ void MainComponent::resized()
     loopButton.setBounds(header.removeFromLeft(80).reduced(0, 4));
     header.removeFromLeft(20);
     exportButton.setBounds(header.removeFromLeft(90).reduced(0, 4));
+    header.removeFromLeft(8);
+    guidedButton.setBounds(header.removeFromLeft(90).reduced(0, 4));
 
     area.removeFromTop(14);
+
+    if (guidedMode)
+    {
+        guidedPanel.setBounds(area.removeFromTop(66));
+        area.removeFromTop(12);
+    }
 
     emptyLabel.setBounds(area);
 
@@ -229,9 +347,12 @@ void MainComponent::resized()
         console.removeFromRight(10);
     }
 
+    stripsRegion = {};
     for (auto* strip : strips)
     {
-        strip->setBounds(console.removeFromLeft(stripWidth));
+        auto stripBounds = console.removeFromLeft(stripWidth);
+        strip->setBounds(stripBounds);
+        stripsRegion = stripsRegion.isEmpty() ? stripBounds : stripsRegion.getUnion(stripBounds);
         console.removeFromLeft(4);
     }
 

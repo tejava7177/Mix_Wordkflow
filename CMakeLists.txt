@@ -38,6 +38,7 @@ target_sources(MixMentor
         Source/UI/ChannelStripComponent.cpp
         Source/UI/CompressorEditorComponent.cpp
         Source/UI/EqEditorComponent.cpp
+        Source/UI/GuidedPanelComponent.cpp
 )
 
 target_include_directories(MixMentor

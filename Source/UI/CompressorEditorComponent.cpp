@@ -89,6 +89,13 @@ void CompressorEditorComponent::pushToChannel()
     channel->compMakeupDb.store((float) makeup.getValue());
 }
 
+void CompressorEditorComponent::refresh()
+{
+    if (channel != nullptr)
+        pullFromChannel();
+    repaint();
+}
+
 void CompressorEditorComponent::refreshMeter()
 {
     const float gr = channel != nullptr ? channel->meterGrDb.load() : 0.0f;

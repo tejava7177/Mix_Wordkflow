@@ -15,6 +15,15 @@ EqEditorComponent::EqEditorComponent()
     titleLabel.setText("EQ", juce::dontSendNotification);
     addAndMakeVisible(titleLabel);
 
+    suggestButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(58, 66, 52));
+    suggestButton.onClick = [this] { if (onSuggest) onSuggest(); };
+    addAndMakeVisible(suggestButton);
+
+    reasonLabel.setFont(juce::FontOptions(12.0f));
+    reasonLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(180, 190, 200));
+    reasonLabel.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(reasonLabel);
+
     eqOnButton.onClick = [this] { pushToChannel(); };
     addAndMakeVisible(eqOnButton);
     hpOnButton.onClick = [this] { pushToChannel(); };
@@ -56,14 +65,28 @@ void EqEditorComponent::setChannel(Channel* channelToEdit, juce::Colour accent, 
     const bool has = channel != nullptr;
     titleLabel.setText(has ? channel->name + "  —  EQ" : "EQ", juce::dontSendNotification);
     for (auto* c : std::initializer_list<juce::Component*> {
+             &suggestButton, &reasonLabel,
              &eqOnButton, &hpOnButton, &hpFreq, &bellFreq, &bellGain, &bellQ, &shelfFreq, &shelfGain,
              &hpFreqL, &bellFreqL, &bellGainL, &bellQL, &shelfFreqL, &shelfGainL })
         c->setVisible(has);
 
     if (has)
         pullFromChannel();
+    reasonLabel.setText({}, juce::dontSendNotification);
     spectrum.clear();
     repaint();
+}
+
+void EqEditorComponent::refresh()
+{
+    if (channel != nullptr)
+        pullFromChannel();
+    repaint();
+}
+
+void EqEditorComponent::setReason(const juce::String& text)
+{
+    reasonLabel.setText(text, juce::dontSendNotification);
 }
 
 void EqEditorComponent::setSpectrum(const std::vector<float>& magnitudesDb, double analyzerSampleRate)
@@ -205,10 +228,15 @@ void EqEditorComponent::resized()
     auto area = getLocalBounds().reduced(14);
 
     auto header = area.removeFromTop(28);
-    titleLabel.setBounds(header.removeFromLeft(220));
-    eqOnButton.setBounds(header.removeFromRight(90));
-    hpOnButton.setBounds(header.removeFromRight(110));
-    area.removeFromTop(8);
+    titleLabel.setBounds(header.removeFromLeft(190));
+    eqOnButton.setBounds(header.removeFromRight(84));
+    hpOnButton.setBounds(header.removeFromRight(104));
+    header.removeFromRight(8);
+    suggestButton.setBounds(header.removeFromRight(84).reduced(0, 2));
+
+    area.removeFromTop(4);
+    reasonLabel.setBounds(area.removeFromTop(30));
+    area.removeFromTop(6);
 
     auto controls = area.removeFromBottom(6 * 26 + 10);
     curveArea = area.reduced(2);

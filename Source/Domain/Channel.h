@@ -41,6 +41,20 @@ struct CompValues
     float makeupDb { 0.0f };
 };
 
+// DSP analysis of a stem, measured once on load. Drives warnings and the
+// recommendation engine (deterministic - no AI).
+struct StemAnalysis
+{
+    bool  valid { false };
+    float loudnessDb { -100.0f };   // RMS level
+    float peakDb { -100.0f };
+    float crestDb { 0.0f };         // peak - RMS: how dynamic it is
+    float lowRatio { 0.0f };        // fraction of energy below 250 Hz
+    float midRatio { 0.0f };        // 250 Hz - 4 kHz
+    float highRatio { 0.0f };       // above 4 kHz
+    bool  clipping { false };
+};
+
 // One mixer channel: a loaded stem plus its real-time-controllable state.
 //
 // The user-controlled parameters and the meter read-outs are atomics so the UI
@@ -57,6 +71,7 @@ struct Channel
 
     juce::AudioBuffer<float> audio;   // stereo, resampled to the engine sample rate
     double sourceSampleRate { 0.0 };
+    StemAnalysis analysis;            // measured once on load
 
     // User controls (message thread writes, audio thread reads).
     std::atomic<float> faderDb { 0.0f };  // fader gain in dB
