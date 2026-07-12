@@ -263,13 +263,14 @@ void MainComponent::selectChannel(int index)
         compEditor.setChannel(ch, ch->colour);
         updateAnalysisPanel(index);
 
-        // Surface an import warning, or the role hint, under the EQ title.
+        // Surface an import warning, or a role hint, under the EQ title.
         if (ch->analysis.clipping)
             eqEditor.setReason("Note: this track peaks very hot - lower its fader or it may distort.");
         else if (ch->analysis.valid && ch->analysis.loudnessDb < -32.0f)
             eqEditor.setReason("Note: this track is quite quiet - you may need to raise its fader.");
         else
-            eqEditor.setReason("Click Suggest for a starting EQ and compression for this " + toDisplayString(ch->role).toLowerCase() + ".");
+            eqEditor.setReason("Click Suggest for a starting EQ for this " + toDisplayString(ch->role).toLowerCase() + ".");
+        compEditor.setReason("Click Suggest for compression tuned to this " + toDisplayString(ch->role).toLowerCase() + ".");
     }
     else
     {
@@ -380,8 +381,7 @@ void MainComponent::applyEqRecommendation(int index)
     ch->shelfGainDb.store(rec.eq.shelfGainDb);
 
     eqEditor.refresh();
-    eqEditor.setReason("Suggested a starting EQ for this "
-                       + toDisplayString(ch->role).toLowerCase() + ".");
+    eqEditor.setReason(explainEq(ch->role, ch->analysis, rec.eq));
     updateAnalysisPanel(index);
 }
 
@@ -404,8 +404,7 @@ void MainComponent::applyCompRecommendation(int index)
     ch->compMakeupDb.store(rec.comp.makeupDb);
 
     compEditor.refresh();
-    compEditor.setReason("Suggested compression for this "
-                         + toDisplayString(ch->role).toLowerCase() + ".");
+    compEditor.setReason(explainComp(ch->role, ch->analysis, rec.comp));
     updateAnalysisPanel(index);
 }
 
@@ -417,7 +416,12 @@ void MainComponent::suggestAll()
 
     eqEditor.refresh();
     compEditor.refresh();
-    eqEditor.setReason("Suggested a full starting mix for every track - play it, then refine from here.");
+    if (selectedIndex >= 0 && selectedIndex < session.numChannels())
+    {
+        auto* ch = session.channels[static_cast<size_t>(selectedIndex)].get();
+        eqEditor.setReason(explainEq(ch->role, ch->analysis, ch->readEq()));
+        compEditor.setReason(explainComp(ch->role, ch->analysis, ch->readComp()));
+    }
     updateAnalysisPanel(selectedIndex);
 }
 

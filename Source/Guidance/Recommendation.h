@@ -128,3 +128,55 @@ inline Recommendation recommend(StemRole role, const StemAnalysis& a)
                                  : "Suggested: " + reasons.joinIntoString("; ") + ".";
     return r;
 }
+
+// Educational one-liners that tie the measured analysis to the chosen settings,
+// so the user learns *why* each suggestion was made (not just what changed).
+
+inline juce::String explainEq(StemRole role, const StemAnalysis& a, const EqValues& eq)
+{
+    auto pct = [](float r) { return juce::String(juce::roundToInt(r * 100.0f)) + "%"; };
+
+    juce::StringArray moves;
+    if (eq.hpOn)
+        moves.add("high-pass " + juce::String((int) eq.hpFreq) + " Hz");
+    if (eq.bellGainDb < -0.5f)
+        moves.add(juce::String(eq.bellGainDb, 1) + " dB dip at " + juce::String((int) eq.bellFreq) + " Hz");
+    if (eq.shelfGainDb > 0.5f)
+        moves.add("+" + juce::String(eq.shelfGainDb, 1) + " dB shelf at " + juce::String((int) eq.shelfFreq) + " Hz");
+
+    juce::String why;
+    if (! a.valid)
+        why = "Role-based starting EQ: ";
+    else if (role == StemRole::Bass)
+        why = "Low energy " + pct(a.lowRatio) + " (bass body): ";
+    else if (eq.bellGainDb < -0.5f)
+        why = "Lows " + pct(a.lowRatio) + " (muddy): ";
+    else if (eq.shelfGainDb > 0.5f)
+        why = "Highs only " + pct(a.highRatio) + " (dull): ";
+    else
+        why = "Balance L/M/H " + pct(a.lowRatio) + " / " + pct(a.midRatio) + " / " + pct(a.highRatio) + ": ";
+
+    if (moves.isEmpty())
+        return why + "tone already even, so no cut or boost.";
+    return why + moves.joinIntoString(", ") + ".";
+}
+
+inline juce::String explainComp(StemRole role, const StemAnalysis& a, const CompValues& comp)
+{
+    juce::ignoreUnused(role);
+    if (! comp.compOn)
+        return "Compressor off - this part sits fine without it.";
+
+    const juce::String settings = juce::String(comp.ratio, 1) + ":1 at "
+        + juce::String((int) comp.thresholdDb) + " dB, attack " + juce::String((int) comp.attackMs) + " ms";
+
+    juce::String why;
+    if (a.valid)
+        why = "Crest " + juce::String(a.crestDb, 1) + " dB "
+            + (a.crestDb > 18.0f ? "(very dynamic): " : "(fairly steady): ");
+    else
+        why = "Role-based control: ";
+
+    const juce::String tail = comp.autoGain ? "; auto-gain keeps the level matched." : ".";
+    return why + settings + tail;
+}
