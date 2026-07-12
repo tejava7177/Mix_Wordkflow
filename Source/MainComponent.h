@@ -12,6 +12,7 @@
 #include "UI/CompressorEditorComponent.h"
 #include "UI/EqEditorComponent.h"
 #include "UI/GuidedPanelComponent.h"
+#include "UI/TimelineComponent.h"
 
 // Phase 1 console: loads a demo session, plays all stems in sync, and exposes a
 // channel strip (fader / pan / mute / solo / meter) per stem plus a master strip.
@@ -24,9 +25,11 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
 private:
     void loadDemoSession();
+    void openStems();
     void rebuildStrips();
     void selectChannel(int index);
     juce::String applyRecommendationToChannel(int index);
@@ -40,6 +43,7 @@ private:
 
     AudioEngine engine;
     int selectedIndex { -1 };
+    bool focusGrabbed { false };
 
     std::vector<MixStage> stages { makeMixStages() };
     bool guidedMode { false };
@@ -47,9 +51,12 @@ private:
     juce::Rectangle<int> stripsRegion;
 
     juce::Label titleLabel;
+    juce::TextButton openButton { "Open" };
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
     juce::TextButton loopButton { "Loop" };
+    juce::TextButton editorsButton { "Editors" };
+    bool editorsVisible { true };
     juce::TextButton exportButton { "Export" };
     juce::TextButton suggestAllButton { "Suggest all" };
     juce::TextButton guidedButton { "Guided" };
@@ -57,6 +64,7 @@ private:
     juce::Label emptyLabel;
     std::unique_ptr<juce::FileChooser> fileChooser;
     GuidedPanelComponent guidedPanel;
+    TimelineComponent timeline;
 
     juce::OwnedArray<ChannelStripComponent> strips;
     std::unique_ptr<ChannelStripComponent> masterStrip;

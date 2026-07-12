@@ -66,6 +66,9 @@ AudioEngine::~AudioEngine()
 
 int AudioEngine::loadStems(const juce::Array<juce::File>& files)
 {
+    // Block the audio callback while we swap the whole session (safe for reloads).
+    deviceManager.removeAudioCallback(this);
+
     stop();
     session.clear();
     channelEq.clear();
@@ -79,12 +82,15 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
 
     for (const auto& file : files)
     {
+        if (index >= kMaxTracks)
+            break;
+
         std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
         if (reader == nullptr || reader->lengthInSamples <= 0)
             continue;
 
         const int length = static_cast<int>(reader->lengthInSamples);
-        auto channel = std::make_unique<Channel>(file.getFileNameWithoutExtension());
+        auto channel = std::make_unique<Channel>(file.getFileNameWithoutExtension().trim());
         channel->audio.setSize(2, length);
         channel->audio.clear();
         reader->read(&channel->audio, 0, length, 0, true, true);
@@ -103,7 +109,10 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
     }
 
     if (session.isEmpty())
+    {
+        deviceManager.addAudioCallback(this);
         return 0;
+    }
 
     session.sampleRate = sourceRate;
     session.lengthSamples = maxLength;
@@ -111,6 +120,8 @@ int AudioEngine::loadStems(const juce::Array<juce::File>& files)
 
     prepareBuffersForSampleRate(currentSampleRate);
     prepareDsp(currentSampleRate, currentBlockSize);
+    computeOverview();
+    deviceManager.addAudioCallback(this);
     return session.numChannels();
 }
 
@@ -192,6 +203,53 @@ double AudioEngine::getPositionSeconds() const noexcept
 double AudioEngine::getLengthSeconds() const noexcept
 {
     return currentSampleRate > 0.0 ? session.lengthSamples / currentSampleRate : 0.0;
+}
+
+void AudioEngine::seekSeconds(double seconds) noexcept
+{
+    const int total = static_cast<int>(session.lengthSamples);
+    if (total <= 0)
+        return;
+    playhead.store(static_cast<int>(juce::jlimit(0.0, static_cast<double>(total), seconds * currentSampleRate)));
+}
+
+void AudioEngine::computeOverview()
+{
+    constexpr int numPoints = 1400;
+    overview.assign(numPoints, 0.0f);
+    const int total = static_cast<int>(session.lengthSamples);
+    if (total <= 0 || session.isEmpty())
+        return;
+
+    for (int k = 0; k < numPoints; ++k)
+    {
+        const int start = static_cast<int>(static_cast<long long>(k) * total / numPoints);
+        const int end = static_cast<int>(static_cast<long long>(k + 1) * total / numPoints);
+        const int step = juce::jmax(1, (end - start) / 128);
+
+        float peak = 0.0f;
+        for (int i = start; i < end; i += step)
+        {
+            float sum = 0.0f;
+            for (auto& channel : session.channels)
+            {
+                if (i >= channel->audio.getNumSamples())
+                    continue;
+                const float l = channel->audio.getReadPointer(0)[i];
+                const float r = channel->audio.getNumChannels() > 1 ? channel->audio.getReadPointer(1)[i] : l;
+                sum += 0.5f * (l + r);
+            }
+            peak = juce::jmax(peak, std::abs(sum));
+        }
+        overview[static_cast<size_t>(k)] = peak;
+    }
+
+    float maxPeak = 0.0f;
+    for (float v : overview)
+        maxPeak = juce::jmax(maxPeak, v);
+    if (maxPeak > 0.0f)
+        for (auto& v : overview)
+            v /= maxPeak;
 }
 
 bool AudioEngine::exportMixdown(const juce::File& outputFile)

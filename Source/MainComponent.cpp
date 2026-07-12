@@ -26,6 +26,9 @@ MainComponent::MainComponent()
     titleLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(titleLabel);
 
+    openButton.onClick = [this] { openStems(); };
+    addAndMakeVisible(openButton);
+
     playButton.onClick = [this] { engine.togglePlay(); };
     addAndMakeVisible(playButton);
 
@@ -76,6 +79,18 @@ MainComponent::MainComponent()
     guidedPanel.onExit = [this] { setGuided(false); };
     addChildComponent(guidedPanel);
 
+    editorsButton.setClickingTogglesState(true);
+    editorsButton.setToggleState(true, juce::dontSendNotification);
+    editorsButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour::fromRGB(78, 90, 110));
+    editorsButton.onClick = [this]
+    {
+        editorsVisible = editorsButton.getToggleState();
+        eqEditor.setVisible(editorsVisible);
+        compEditor.setVisible(editorsVisible);
+        resized();
+    };
+    addAndMakeVisible(editorsButton);
+
     positionLabel.setJustificationType(juce::Justification::centredRight);
     positionLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(165, 178, 194));
     addAndMakeVisible(positionLabel);
@@ -87,6 +102,16 @@ MainComponent::MainComponent()
     addAndMakeVisible(eqEditor);
     addAndMakeVisible(compEditor);
     eqEditor.onSuggest = [this] { applyRecommendation(selectedIndex); };
+
+    timeline.onSeek = [this](double fraction) { engine.seekSeconds(fraction * engine.getLengthSeconds()); };
+    addAndMakeVisible(timeline);
+
+    // Keep keyboard shortcuts working: transport buttons don't hold focus, the
+    // main component does, so space/enter/arrows reach keyPressed().
+    for (auto* b : { &openButton, &playButton, &stopButton, &loopButton, &exportButton,
+                     &suggestAllButton, &guidedButton, &editorsButton })
+        b->setWantsKeyboardFocus(false);
+    setWantsKeyboardFocus(true);
 
     loadDemoSession();
 
@@ -126,6 +151,49 @@ void MainComponent::loadDemoSession()
     rebuildStrips();
 }
 
+void MainComponent::openStems()
+{
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Open stems - select audio files or a folder",
+        juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+        "*.wav;*.aif;*.aiff;*.flac;*.mp3");
+    const auto flags = juce::FileBrowserComponent::openMode
+                     | juce::FileBrowserComponent::canSelectFiles
+                     | juce::FileBrowserComponent::canSelectMultipleItems
+                     | juce::FileBrowserComponent::canSelectDirectories;
+    fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc)
+    {
+        const auto results = fc.getResults();
+        if (results.isEmpty())
+            return;
+
+        juce::Array<juce::File> files;
+        for (const auto& item : results)
+        {
+            if (item.isDirectory())
+                files.addArray(item.findChildFiles(juce::File::findFiles, false, "*"));
+            else
+                files.add(item);
+        }
+        std::sort(files.begin(), files.end(),
+                  [](const juce::File& a, const juce::File& b) { return a.getFileName() < b.getFileName(); });
+
+        const int loaded = engine.loadStems(files);
+        if (loaded == 0)
+        {
+            juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                "MixMentor", "No readable audio files were found.");
+            return;
+        }
+        selectedIndex = -1;
+        emptyLabel.setVisible(false);
+        rebuildStrips();
+        if (loaded >= AudioEngine::kMaxTracks)
+            juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                "MixMentor", "Loaded " + juce::String(AudioEngine::kMaxTracks) + " tracks (the maximum).");
+    });
+}
+
 void MainComponent::rebuildStrips()
 {
     strips.clear();
@@ -161,6 +229,7 @@ void MainComponent::rebuildStrips()
     masterStrip = std::make_unique<ChannelStripComponent>(mb);
     addAndMakeVisible(*masterStrip);
 
+    timeline.setOverview(engine.getOverview());
     selectChannel(session.numChannels() > 0 ? 0 : -1);
     resized();
 }
@@ -299,8 +368,47 @@ void MainComponent::advanceStage(int delta)
     updateGuidedPanel();
 }
 
+bool MainComponent::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::spaceKey)
+    {
+        engine.togglePlay();
+        return true;
+    }
+    if (key == juce::KeyPress::returnKey)
+    {
+        engine.stop();
+        engine.seekSeconds(0.0);
+        return true;
+    }
+    if (key == juce::KeyPress::leftKey)
+    {
+        engine.seekSeconds(engine.getPositionSeconds() - 5.0);
+        return true;
+    }
+    if (key == juce::KeyPress::rightKey)
+    {
+        engine.seekSeconds(engine.getPositionSeconds() + 5.0);
+        return true;
+    }
+    if (juce::CharacterFunctions::toLowerCase(key.getTextCharacter()) == 'l')
+    {
+        const bool loop = ! engine.isLooping();
+        engine.setLooping(loop);
+        loopButton.setToggleState(loop, juce::dontSendNotification);
+        return true;
+    }
+    return false;
+}
+
 void MainComponent::timerCallback()
 {
+    if (! focusGrabbed && isShowing())
+    {
+        grabKeyboardFocus();
+        focusGrabbed = true;
+    }
+
     for (auto* strip : strips)
         strip->refreshMeter();
     if (masterStrip != nullptr)
@@ -310,8 +418,10 @@ void MainComponent::timerCallback()
         eqEditor.setSpectrum(spectrumBuffer, engine.getSampleRate());
     compEditor.refreshMeter();
 
+    const double lengthSeconds = engine.getLengthSeconds();
+    timeline.setPosition(lengthSeconds > 0.0 ? engine.getPositionSeconds() / lengthSeconds : 0.0);
     positionLabel.setText(formatTime(engine.getPositionSeconds()) + " / "
-                              + formatTime(engine.getLengthSeconds()),
+                              + formatTime(lengthSeconds),
                           juce::dontSendNotification);
     playButton.setButtonText(engine.isPlaying() ? "Pause" : "Play");
 }
@@ -349,22 +459,30 @@ void MainComponent::resized()
     auto area = getLocalBounds().reduced(24);
 
     auto header = area.removeFromTop(40);
-    titleLabel.setBounds(header.removeFromLeft(200));
-    positionLabel.setBounds(header.removeFromRight(160));
-    header.removeFromLeft(12);
-    playButton.setBounds(header.removeFromLeft(80).reduced(0, 4));
+    titleLabel.setBounds(header.removeFromLeft(130));
+    positionLabel.setBounds(header.removeFromRight(140));
     header.removeFromLeft(8);
-    stopButton.setBounds(header.removeFromLeft(80).reduced(0, 4));
+
+    auto placeButton = [&header](juce::Button& b, int w)
+    {
+        b.setBounds(header.removeFromLeft(w).reduced(0, 4));
+        header.removeFromLeft(6);
+    };
+    placeButton(openButton, 64);
     header.removeFromLeft(8);
-    loopButton.setBounds(header.removeFromLeft(80).reduced(0, 4));
-    header.removeFromLeft(20);
-    exportButton.setBounds(header.removeFromLeft(90).reduced(0, 4));
+    placeButton(playButton, 72);
+    placeButton(stopButton, 60);
+    placeButton(loopButton, 60);
     header.removeFromLeft(8);
-    suggestAllButton.setBounds(header.removeFromLeft(112).reduced(0, 4));
-    header.removeFromLeft(8);
-    guidedButton.setBounds(header.removeFromLeft(90).reduced(0, 4));
+    placeButton(exportButton, 72);
+    placeButton(suggestAllButton, 96);
+    placeButton(guidedButton, 74);
+    placeButton(editorsButton, 74);
 
     area.removeFromTop(14);
+
+    timeline.setBounds(area.removeFromTop(56));
+    area.removeFromTop(12);
 
     if (guidedMode)
     {
@@ -374,30 +492,44 @@ void MainComponent::resized()
 
     emptyLabel.setBounds(area);
 
-    // console: channel strips + master on the right
-    const int stripWidth = 96;
     auto console = area;
 
     if (masterStrip != nullptr)
     {
-        auto masterArea = console.removeFromRight(stripWidth);
-        masterStrip->setBounds(masterArea);
+        masterStrip->setBounds(console.removeFromRight(96));
         console.removeFromRight(10);
     }
 
-    stripsRegion = {};
-    for (auto* strip : strips)
+    // EQ + compressor editors occupy a right block when shown; hiding them frees
+    // the full width for the channel strips (no horizontal scroll).
+    if (editorsVisible)
     {
-        auto stripBounds = console.removeFromLeft(stripWidth);
-        strip->setBounds(stripBounds);
-        stripsRegion = stripsRegion.isEmpty() ? stripBounds : stripsRegion.getUnion(stripBounds);
-        console.removeFromLeft(4);
+        auto editors = console.removeFromRight(640);
+        console.removeFromRight(12);
+        auto compArea = editors.removeFromBottom(210);
+        editors.removeFromBottom(8);
+        eqEditor.setBounds(editors);
+        compEditor.setBounds(compArea);
     }
 
-    // remaining middle area holds the EQ editor (top) and compressor (bottom)
-    console.removeFromLeft(12);
-    auto compArea = console.removeFromBottom(210);
-    console.removeFromBottom(8);
-    eqEditor.setBounds(console);
-    compEditor.setBounds(compArea);
+    // Strips are centered in the remaining area; their width adapts to the track
+    // count (a little wider when the editors are hidden), so there's never an
+    // awkward empty gap on one side.
+    const int gap = 4;
+    const int n = strips.size();
+    stripsRegion = {};
+    if (n > 0)
+    {
+        const int maxW = editorsVisible ? 96 : 120;
+        const int stripW = juce::jlimit(44, maxW, (console.getWidth() - gap * (n - 1)) / n);
+        const int blockW = stripW * n + gap * (n - 1);
+        int x = console.getX() + juce::jmax(0, (console.getWidth() - blockW) / 2);
+        for (auto* strip : strips)
+        {
+            const juce::Rectangle<int> bounds(x, console.getY(), stripW, console.getHeight());
+            strip->setBounds(bounds);
+            stripsRegion = stripsRegion.isEmpty() ? bounds : stripsRegion.getUnion(bounds);
+            x += stripW + gap;
+        }
+    }
 }

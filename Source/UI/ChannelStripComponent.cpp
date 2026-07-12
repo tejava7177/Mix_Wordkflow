@@ -126,7 +126,10 @@ void ChannelStripComponent::setSelected(bool shouldBeSelected)
 
 void ChannelStripComponent::resized()
 {
-    auto area = getLocalBounds().reduced(6, 8);
+    // Narrow strips (many tracks) drop the pan control and tighten spacing so the
+    // remaining controls stay legible instead of collapsing to "...".
+    const bool compact = getWidth() < 74;
+    auto area = getLocalBounds().reduced(compact ? 4 : 6, 8);
 
     nameLabel.setBounds(area.removeFromTop(18));
     roleLabel.setBounds(area.removeFromTop(15));
@@ -134,18 +137,26 @@ void ChannelStripComponent::resized()
 
     if (binding.pan != nullptr)
     {
-        panSlider.setBounds(area.removeFromTop(20));
-        area.removeFromTop(4);
+        panSlider.setVisible(! compact);
+        if (! compact)
+        {
+            panSlider.setBounds(area.removeFromTop(20));
+            area.removeFromTop(4);
+        }
     }
 
     if (binding.solo != nullptr || binding.mute != nullptr)
     {
         auto row = area.removeFromTop(22);
-        const int half = row.getWidth() / 2;
+        const int g = compact ? 2 : 4;
+        const int half = (row.getWidth() - g) / 2;
         if (binding.solo != nullptr)
-            soloButton.setBounds(row.removeFromLeft(half).reduced(2, 0));
+            soloButton.setBounds(row.removeFromLeft(half));
         if (binding.mute != nullptr)
-            muteButton.setBounds(row.reduced(2, 0));
+        {
+            row.removeFromLeft(g);
+            muteButton.setBounds(row);
+        }
         area.removeFromTop(6);
     }
 
@@ -153,8 +164,9 @@ void ChannelStripComponent::resized()
     area.removeFromBottom(4);
 
     // fader on the left, meter on the right of the remaining tall area
-    auto faderArea = area.removeFromLeft(area.getWidth() - 16);
-    area.removeFromLeft(4);
+    const int meterW = compact ? 10 : 16;
+    auto faderArea = area.removeFromLeft(area.getWidth() - meterW);
+    area.removeFromLeft(compact ? 2 : 4);
     faderSlider.setBounds(faderArea);
     meter.setBounds(area);
 }

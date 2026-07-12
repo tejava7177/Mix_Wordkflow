@@ -23,6 +23,8 @@
 class AudioEngine : public juce::AudioIODeviceCallback
 {
 public:
+    static constexpr int kMaxTracks = 20;
+
     AudioEngine();
     ~AudioEngine() override;
 
@@ -42,6 +44,10 @@ public:
     [[nodiscard]] double getPositionSeconds() const noexcept;
     [[nodiscard]] double getLengthSeconds() const noexcept;
     [[nodiscard]] double getSampleRate() const noexcept { return currentSampleRate; }
+    void seekSeconds(double seconds) noexcept;
+
+    // Downsampled peak envelope of the whole mix, for the timeline overview.
+    [[nodiscard]] const std::vector<float>& getOverview() const noexcept { return overview; }
 
     // Spectrum analyzer for the currently selected channel (post-EQ output signal).
     void setAnalyzedChannel(int index) noexcept { analyzedChannel.store(index); }
@@ -65,6 +71,9 @@ public:
 private:
     void prepareBuffersForSampleRate(double sampleRate);
     void prepareDsp(double sampleRate, int blockSize);
+    void computeOverview();
+
+    std::vector<float> overview;
 
     juce::AudioDeviceManager deviceManager;
     juce::AudioFormatManager formatManager;
