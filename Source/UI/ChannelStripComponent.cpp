@@ -1,11 +1,32 @@
 #include "ChannelStripComponent.h"
 
+namespace
+{
+// Draws single-letter button text without an ellipsis, at a small font, so "S"
+// and "M" stay legible on very narrow strips instead of collapsing to "...".
+class CompactButtonLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    void drawButtonText(juce::Graphics& g, juce::TextButton& button, bool, bool) override
+    {
+        g.setColour(button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
+                                                              : juce::TextButton::textColourOffId));
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        g.drawText(button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, false);
+    }
+};
+} // namespace
+
 ChannelStripComponent::ChannelStripComponent(Binding bindingToUse)
     : binding(std::move(bindingToUse))
 {
     // Receive mouse-downs from all child controls too, so clicking anywhere on the
     // strip (fader, buttons, labels) selects the channel for editing.
     addMouseListener(this, true);
+
+    compactButtonLnf = std::make_unique<CompactButtonLookAndFeel>();
+    soloButton.setLookAndFeel(compactButtonLnf.get());
+    muteButton.setLookAndFeel(compactButtonLnf.get());
 
     nameLabel.setText(binding.name, juce::dontSendNotification);
     nameLabel.setJustificationType(juce::Justification::centred);
@@ -66,6 +87,13 @@ ChannelStripComponent::ChannelStripComponent(Binding bindingToUse)
     updateDbLabel();
 
     addAndMakeVisible(meter);
+}
+
+ChannelStripComponent::~ChannelStripComponent()
+{
+    // Detach the custom LookAndFeel before it is destroyed.
+    soloButton.setLookAndFeel(nullptr);
+    muteButton.setLookAndFeel(nullptr);
 }
 
 void ChannelStripComponent::updateDbLabel()

@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "Domain/StemRole.h"
 
@@ -79,17 +80,25 @@ MainComponent::MainComponent()
     guidedPanel.onExit = [this] { setGuided(false); };
     addChildComponent(guidedPanel);
 
-    editorsButton.setClickingTogglesState(true);
-    editorsButton.setToggleState(true, juce::dontSendNotification);
-    editorsButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour::fromRGB(78, 90, 110));
-    editorsButton.onClick = [this]
+    // EQ / Comp act as a mutually-exclusive selector: only one editor shows at a
+    // time (full height, so the curve isn't squished). Clicking the active one
+    // again hides both and gives the full width back to the strips.
+    const auto viewOnColour = juce::Colour::fromRGB(78, 90, 110);
+    eqButton.setClickingTogglesState(true);
+    eqButton.setColour(juce::TextButton::buttonOnColourId, viewOnColour);
+    eqButton.onClick = [this]
     {
-        editorsVisible = editorsButton.getToggleState();
-        eqEditor.setVisible(editorsVisible);
-        compEditor.setVisible(editorsVisible);
-        resized();
+        setEditorView(editorView == EditorView::Eq ? EditorView::None : EditorView::Eq);
     };
-    addAndMakeVisible(editorsButton);
+    addAndMakeVisible(eqButton);
+
+    compButton.setClickingTogglesState(true);
+    compButton.setColour(juce::TextButton::buttonOnColourId, viewOnColour);
+    compButton.onClick = [this]
+    {
+        setEditorView(editorView == EditorView::Comp ? EditorView::None : EditorView::Comp);
+    };
+    addAndMakeVisible(compButton);
 
     positionLabel.setJustificationType(juce::Justification::centredRight);
     positionLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(165, 178, 194));
@@ -99,9 +108,13 @@ MainComponent::MainComponent()
     emptyLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(200, 120, 120));
     addChildComponent(emptyLabel);
 
+    addAndMakeVisible(analysisPanel);
     addAndMakeVisible(eqEditor);
     addAndMakeVisible(compEditor);
-    eqEditor.onSuggest = [this] { applyRecommendation(selectedIndex); };
+    compEditor.setVisible(false);                                  // EQ shown first
+    eqButton.setToggleState(true, juce::dontSendNotification);
+    eqEditor.onSuggest = [this] { applyEqRecommendation(selectedIndex); };
+    compEditor.onSuggest = [this] { applyCompRecommendation(selectedIndex); };
 
     timeline.onSeek = [this](double fraction) { engine.seekSeconds(fraction * engine.getLengthSeconds()); };
     addAndMakeVisible(timeline);
@@ -109,7 +122,7 @@ MainComponent::MainComponent()
     // Keep keyboard shortcuts working: transport buttons don't hold focus, the
     // main component does, so space/enter/arrows reach keyPressed().
     for (auto* b : { &openButton, &playButton, &stopButton, &loopButton, &exportButton,
-                     &suggestAllButton, &guidedButton, &editorsButton })
+                     &suggestAllButton, &guidedButton, &eqButton, &compButton })
         b->setWantsKeyboardFocus(false);
     setWantsKeyboardFocus(true);
 
@@ -248,6 +261,7 @@ void MainComponent::selectChannel(int index)
         auto* ch = session.channels[static_cast<size_t>(index)].get();
         eqEditor.setChannel(ch, ch->colour, session.sampleRate);
         compEditor.setChannel(ch, ch->colour);
+        updateAnalysisPanel(index);
 
         // Surface an import warning, or the role hint, under the EQ title.
         if (ch->analysis.clipping)
@@ -261,7 +275,48 @@ void MainComponent::selectChannel(int index)
     {
         eqEditor.setChannel(nullptr, juce::Colours::teal, session.sampleRate);
         compEditor.setChannel(nullptr, juce::Colours::teal);
+        updateAnalysisPanel(-1);
     }
+}
+
+void MainComponent::setEditorView(EditorView view)
+{
+    editorView = view;
+    eqButton.setToggleState(view == EditorView::Eq, juce::dontSendNotification);
+    compButton.setToggleState(view == EditorView::Comp, juce::dontSendNotification);
+
+    const bool showEq = (view == EditorView::Eq);
+    const bool showComp = (view == EditorView::Comp);
+    analysisPanel.setVisible(showEq || showComp);
+    eqEditor.setVisible(showEq);
+    compEditor.setVisible(showComp);
+    resized();
+}
+
+void MainComponent::updateAnalysisPanel(int index)
+{
+    auto& session = engine.getSession();
+    if (index < 0 || index >= session.numChannels())
+    {
+        analysisPanel.clear();
+        analyzedPanelChannel = -1;
+        panelDirty = false;
+        return;
+    }
+
+    auto* ch = session.channels[static_cast<size_t>(index)].get();
+    const StemAnalysis processed = engine.analyzeProcessed(index);
+    analysisPanel.setAnalysis(processed, ch->name, toDisplayString(ch->role), ch->colour);
+    analysisPanel.setNotes(assessStem(ch->role, processed, ch->analysis));
+
+    // Snapshot the settings we just measured, so the timer only re-measures once
+    // the user actually changes something (and after it settles).
+    lastPanelEq = ch->readEq();
+    lastPanelComp = ch->readComp();
+    lastPanelFader = ch->faderDb.load();
+    analyzedPanelChannel = index;
+    panelDirty = false;
+    panelSettleTicks = 0;
 }
 
 juce::String MainComponent::applyRecommendationToChannel(int index)
@@ -305,15 +360,53 @@ juce::String MainComponent::applyRecommendationToChannel(int index)
     return rec.reason;
 }
 
-void MainComponent::applyRecommendation(int index)
+void MainComponent::applyEqRecommendation(int index)
 {
-    const auto reason = applyRecommendationToChannel(index);
-    if (reason.isNotEmpty())
-    {
-        eqEditor.refresh();
-        compEditor.refresh();
-        eqEditor.setReason(reason);
-    }
+    auto& session = engine.getSession();
+    if (index < 0 || index >= session.numChannels())
+        return;
+
+    auto* ch = session.channels[static_cast<size_t>(index)].get();
+    const Recommendation rec = recommend(ch->role, ch->analysis);
+
+    // EQ fields only - independent of the compressor and balance.
+    ch->eqOn.store(rec.eq.eqOn);
+    ch->hpOn.store(rec.eq.hpOn);
+    ch->hpFreq.store(rec.eq.hpFreq);
+    ch->bellFreq.store(rec.eq.bellFreq);
+    ch->bellGainDb.store(rec.eq.bellGainDb);
+    ch->bellQ.store(rec.eq.bellQ);
+    ch->shelfFreq.store(rec.eq.shelfFreq);
+    ch->shelfGainDb.store(rec.eq.shelfGainDb);
+
+    eqEditor.refresh();
+    eqEditor.setReason("Suggested a starting EQ for this "
+                       + toDisplayString(ch->role).toLowerCase() + ".");
+    updateAnalysisPanel(index);
+}
+
+void MainComponent::applyCompRecommendation(int index)
+{
+    auto& session = engine.getSession();
+    if (index < 0 || index >= session.numChannels())
+        return;
+
+    auto* ch = session.channels[static_cast<size_t>(index)].get();
+    const Recommendation rec = recommend(ch->role, ch->analysis);
+
+    // Compressor fields only - independent of the EQ and balance.
+    ch->compOn.store(rec.comp.compOn);
+    ch->compAutoGain.store(rec.comp.autoGain);
+    ch->compThresholdDb.store(rec.comp.thresholdDb);
+    ch->compRatio.store(rec.comp.ratio);
+    ch->compAttackMs.store(rec.comp.attackMs);
+    ch->compReleaseMs.store(rec.comp.releaseMs);
+    ch->compMakeupDb.store(rec.comp.makeupDb);
+
+    compEditor.refresh();
+    compEditor.setReason("Suggested compression for this "
+                         + toDisplayString(ch->role).toLowerCase() + ".");
+    updateAnalysisPanel(index);
 }
 
 void MainComponent::suggestAll()
@@ -325,6 +418,7 @@ void MainComponent::suggestAll()
     eqEditor.refresh();
     compEditor.refresh();
     eqEditor.setReason("Suggested a full starting mix for every track - play it, then refine from here.");
+    updateAnalysisPanel(selectedIndex);
 }
 
 void MainComponent::setGuided(bool shouldBeGuided)
@@ -352,6 +446,12 @@ void MainComponent::updateGuidedPanel()
     if ((region == StageRegion::Eq || region == StageRegion::Compressor)
         && selectedIndex < 0 && engine.getSession().numChannels() > 0)
         selectChannel(0);
+
+    // Make sure the editor the stage talks about is the one on screen.
+    if (region == StageRegion::Eq)
+        setEditorView(EditorView::Eq);
+    else if (region == StageRegion::Compressor)
+        setEditorView(EditorView::Comp);
 
     repaint();
 }
@@ -418,6 +518,31 @@ void MainComponent::timerCallback()
         eqEditor.setSpectrum(spectrumBuffer, engine.getSampleRate());
     compEditor.refreshMeter();
 
+    // Re-measure the selected stem when its settings change and then settle, so
+    // the Analysis panel reflects the user's current EQ / compressor / fader.
+    auto& asession = engine.getSession();
+    if (selectedIndex >= 0 && selectedIndex < asession.numChannels())
+    {
+        auto* ch = asession.channels[static_cast<size_t>(selectedIndex)].get();
+        const EqValues eq = ch->readEq();
+        const CompValues cp = ch->readComp();
+        const float fader = ch->faderDb.load();
+        if (selectedIndex != analyzedPanelChannel || eq != lastPanelEq
+            || cp != lastPanelComp || std::abs(fader - lastPanelFader) > 0.01f)
+        {
+            lastPanelEq = eq;
+            lastPanelComp = cp;
+            lastPanelFader = fader;
+            analyzedPanelChannel = selectedIndex;
+            panelDirty = true;
+            panelSettleTicks = 0;
+        }
+        else if (panelDirty && ++panelSettleTicks >= 6)   // ~200 ms after the last change
+        {
+            updateAnalysisPanel(selectedIndex);
+        }
+    }
+
     const double lengthSeconds = engine.getLengthSeconds();
     timeline.setPosition(lengthSeconds > 0.0 ? engine.getPositionSeconds() / lengthSeconds : 0.0);
     positionLabel.setText(formatTime(engine.getPositionSeconds()) + " / "
@@ -477,7 +602,9 @@ void MainComponent::resized()
     placeButton(exportButton, 72);
     placeButton(suggestAllButton, 96);
     placeButton(guidedButton, 74);
-    placeButton(editorsButton, 74);
+    header.removeFromLeft(8);
+    placeButton(eqButton, 52);
+    placeButton(compButton, 62);
 
     area.removeFromTop(14);
 
@@ -500,28 +627,42 @@ void MainComponent::resized()
         console.removeFromRight(10);
     }
 
-    // EQ + compressor editors occupy a right block when shown; hiding them frees
-    // the full width for the channel strips (no horizontal scroll).
-    if (editorsVisible)
-    {
-        auto editors = console.removeFromRight(640);
-        console.removeFromRight(12);
-        auto compArea = editors.removeFromBottom(210);
-        editors.removeFromBottom(8);
-        eqEditor.setBounds(editors);
-        compEditor.setBounds(compArea);
-    }
-
-    // Strips are centered in the remaining area; their width adapts to the track
-    // count (a little wider when the editors are hidden), so there's never an
-    // awkward empty gap on one side.
     const int gap = 4;
     const int n = strips.size();
     stripsRegion = {};
-    if (n > 0)
+    const bool editorsVisible = (editorView != EditorView::None);
+
+    if (editorsVisible)
     {
-        const int maxW = editorsVisible ? 96 : 120;
-        const int stripW = juce::jlimit(44, maxW, (console.getWidth() - gap * (n - 1)) / n);
+        // Strips sit flush-left at a comfortable width; the editor panel then fills
+        // ALL the remaining width, so enlarging the window grows the editor instead
+        // of leaving an empty gap between strips and editor.
+        if (n > 0)
+        {
+            const int stripW = juce::jlimit(48, 116, (console.getWidth() * 2 / 5 - gap * (n - 1)) / n);
+            int x = console.getX();
+            for (auto* strip : strips)
+            {
+                const juce::Rectangle<int> bounds(x, console.getY(), stripW, console.getHeight());
+                strip->setBounds(bounds);
+                stripsRegion = stripsRegion.isEmpty() ? bounds : stripsRegion.getUnion(bounds);
+                x += stripW + gap;
+            }
+            console.removeFromLeft(stripsRegion.getWidth() + 18);
+        }
+
+        // Analysis on top; the selected editor (EQ or Comp) fills the full height
+        // below it, so its graph is no longer squished.
+        auto editors = console;
+        analysisPanel.setBounds(editors.removeFromTop(234));
+        editors.removeFromTop(10);
+        eqEditor.setBounds(editors);
+        compEditor.setBounds(editors);
+    }
+    else if (n > 0)
+    {
+        // Editors hidden: strips fill the whole width, centered.
+        const int stripW = juce::jlimit(44, 140, (console.getWidth() - gap * (n - 1)) / n);
         const int blockW = stripW * n + gap * (n - 1);
         int x = console.getX() + juce::jmax(0, (console.getWidth() - blockW) / 2);
         for (auto* strip : strips)

@@ -53,6 +53,11 @@ public:
     void setAnalyzedChannel(int index) noexcept { analyzedChannel.store(index); }
     bool renderSpectrum(std::vector<float>& magnitudesDb) { return analyzer.render(magnitudesDb); }
 
+    // Offline: run one channel through its current EQ + compressor + fader gain and
+    // measure the result, so the UI can show how the user's settings changed the
+    // stem (level, dynamics, spectral balance). Deterministic; never touches live state.
+    StemAnalysis analyzeProcessed(int channelIndex);
+
     // Offline-render the current mix (EQ + compressor + fader/pan + master) to a
     // 24-bit WAV. Uses its own DSP so it never touches the live audio state.
     // Respects mute; ignores solo (a bounce is the full balanced mix).

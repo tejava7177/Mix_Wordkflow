@@ -15,6 +15,15 @@ CompressorEditorComponent::CompressorEditorComponent()
     titleLabel.setText("Compressor", juce::dontSendNotification);
     addAndMakeVisible(titleLabel);
 
+    suggestButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(58, 66, 52));
+    suggestButton.onClick = [this] { if (onSuggest) onSuggest(); };
+    addAndMakeVisible(suggestButton);
+
+    reasonLabel.setFont(juce::FontOptions(12.0f));
+    reasonLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(180, 190, 200));
+    reasonLabel.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(reasonLabel);
+
     compOnButton.onClick = [this] { pushToChannel(); };
     addAndMakeVisible(compOnButton);
     autoGainButton.onClick = [this] { pushToChannel(); repaint(); };
@@ -55,13 +64,20 @@ void CompressorEditorComponent::setChannel(Channel* channelToEdit, juce::Colour 
     const bool has = channel != nullptr;
     titleLabel.setText(has ? channel->name + "  —  Compressor" : "Compressor", juce::dontSendNotification);
     for (auto* c : std::initializer_list<juce::Component*> {
+             &suggestButton, &reasonLabel,
              &compOnButton, &autoGainButton, &threshold, &ratio, &attack, &release, &makeup,
              &thresholdL, &ratioL, &attackL, &releaseL, &makeupL })
         c->setVisible(has);
 
     if (has)
         pullFromChannel();
+    reasonLabel.setText({}, juce::dontSendNotification);
     repaint();
+}
+
+void CompressorEditorComponent::setReason(const juce::String& text)
+{
+    reasonLabel.setText(text, juce::dontSendNotification);
 }
 
 void CompressorEditorComponent::pullFromChannel()
@@ -169,11 +185,17 @@ void CompressorEditorComponent::resized()
 {
     auto area = getLocalBounds().reduced(14);
 
-    auto header = area.removeFromTop(26);
-    titleLabel.setBounds(header.removeFromLeft(230));
+    auto header = area.removeFromTop(28);
+    titleLabel.setBounds(header.removeFromLeft(200));
     compOnButton.setBounds(header.removeFromRight(96));
     header.removeFromRight(8);
     autoGainButton.setBounds(header.removeFromRight(100));
+    header.removeFromRight(12);
+    suggestButton.setBounds(header.removeFromRight(84).reduced(0, 2));
+
+    area.removeFromTop(4);
+    reasonLabel.setBounds(area.removeFromTop(28));
+    area.removeFromTop(4);
 
     meterArea = area.removeFromTop(18);
     area.removeFromTop(8);

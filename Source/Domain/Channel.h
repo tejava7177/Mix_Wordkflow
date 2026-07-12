@@ -41,6 +41,15 @@ struct CompValues
     float makeupDb { 0.0f };
 };
 
+inline bool operator==(const CompValues& a, const CompValues& b) noexcept
+{
+    return a.compOn == b.compOn && a.autoGain == b.autoGain && a.thresholdDb == b.thresholdDb
+        && a.ratio == b.ratio && a.attackMs == b.attackMs && a.releaseMs == b.releaseMs
+        && a.makeupDb == b.makeupDb;
+}
+
+inline bool operator!=(const CompValues& a, const CompValues& b) noexcept { return ! (a == b); }
+
 // DSP analysis of a stem, measured once on load. Drives warnings and the
 // recommendation engine (deterministic - no AI).
 struct StemAnalysis

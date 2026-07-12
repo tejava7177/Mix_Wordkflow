@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -26,6 +27,7 @@ public:
     };
 
     explicit ChannelStripComponent(Binding bindingToUse);
+    ~ChannelStripComponent() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -47,6 +49,7 @@ private:
 
     Binding binding;
     bool selected { false };
+    std::unique_ptr<juce::LookAndFeel> compactButtonLnf;
 
     juce::Label nameLabel;
     juce::Label roleLabel;

@@ -357,6 +357,66 @@ bool AudioEngine::exportMixdown(const juce::File& outputFile)
     return true;
 }
 
+StemAnalysis AudioEngine::analyzeProcessed(int channelIndex)
+{
+    if (channelIndex < 0 || channelIndex >= session.numChannels())
+        return {};
+
+    Channel& ch = *session.channels[static_cast<size_t>(channelIndex)];
+    const int total = ch.audio.getNumSamples();
+    if (total <= 0)
+        return {};
+
+    const double sr = currentSampleRate;
+
+    // Copy the source stem into a working buffer we can process in place.
+    juce::AudioBuffer<float> work(2, total);
+    const float* sL = ch.audio.getReadPointer(0);
+    const float* sR = ch.audio.getNumChannels() > 1 ? ch.audio.getReadPointer(1) : sL;
+    work.copyFrom(0, 0, sL, total);
+    work.copyFrom(1, 0, sR, total);
+
+    const EqValues eq = ch.readEq();
+    const CompValues comp = ch.readComp();
+    const float gain = ch.linearGain();
+
+    constexpr int block = 4096;
+    EqDsp::Chain chain;
+    if (eq.eqOn)
+    {
+        juce::dsp::ProcessSpec spec { sr, static_cast<juce::uint32>(block), 2 };
+        chain.get<EqDsp::HighPass>().state = EqDsp::makeHighPass(sr, eq);
+        chain.get<EqDsp::Bell>().state = EqDsp::makeBell(sr, eq);
+        chain.get<EqDsp::HighShelf>().state = EqDsp::makeHighShelf(sr, eq);
+        chain.prepare(spec);
+        chain.reset();
+        chain.setBypassed<EqDsp::HighPass>(! eq.hpOn);
+    }
+    ChannelCompressor comps;
+
+    for (int pos = 0; pos < total; pos += block)
+    {
+        const int n = juce::jmin(block, total - pos);
+        float* dL = work.getWritePointer(0) + pos;
+        float* dR = work.getWritePointer(1) + pos;
+
+        if (eq.eqOn)
+        {
+            juce::dsp::AudioBlock<float> b(work);
+            auto sub = b.getSubBlock(static_cast<size_t>(pos), static_cast<size_t>(n));
+            juce::dsp::ProcessContextReplacing<float> context(sub);
+            chain.process(context);
+        }
+        if (comp.compOn)
+            comps.process(dL, dR, n, comp, sr);
+
+        juce::FloatVectorOperations::multiply(dL, gain, n);
+        juce::FloatVectorOperations::multiply(dR, gain, n);
+    }
+
+    return analyzeStem(work, sr);
+}
+
 void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*,
                                                    int,
                                                    float* const* outputChannelData,
