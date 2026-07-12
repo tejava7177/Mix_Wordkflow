@@ -62,6 +62,10 @@ MainComponent::MainComponent()
     };
     addAndMakeVisible(exportButton);
 
+    suggestAllButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(58, 66, 52));
+    suggestAllButton.onClick = [this] { suggestAll(); };
+    addAndMakeVisible(suggestAllButton);
+
     guidedButton.setClickingTogglesState(true);
     guidedButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour::fromRGB(232, 176, 75));
     guidedButton.onClick = [this] { setGuided(guidedButton.getToggleState()); };
@@ -191,11 +195,11 @@ void MainComponent::selectChannel(int index)
     }
 }
 
-void MainComponent::applyRecommendation(int index)
+juce::String MainComponent::applyRecommendationToChannel(int index)
 {
     auto& session = engine.getSession();
     if (index < 0 || index >= session.numChannels())
-        return;
+        return {};
 
     auto* ch = session.channels[static_cast<size_t>(index)].get();
     const Recommendation rec = recommend(ch->role, ch->analysis);
@@ -217,9 +221,41 @@ void MainComponent::applyRecommendation(int index)
     ch->compReleaseMs.store(rec.comp.releaseMs);
     ch->compMakeupDb.store(rec.comp.makeupDb);
 
+    // Balance and panning. Same-role instruments alternate sides so, e.g., two
+    // guitars spread left and right instead of stacking.
+    ch->faderDb.store(rec.faderDb);
+    int sameRoleBefore = 0;
+    for (int j = 0; j < index; ++j)
+        if (session.channels[static_cast<size_t>(j)]->role == ch->role)
+            ++sameRoleBefore;
+    const float side = (sameRoleBefore % 2 == 0) ? -1.0f : 1.0f;
+    ch->pan.store(rec.panAmount * side);
+    if (index < strips.size())
+        strips[index]->refreshControls();
+
+    return rec.reason;
+}
+
+void MainComponent::applyRecommendation(int index)
+{
+    const auto reason = applyRecommendationToChannel(index);
+    if (reason.isNotEmpty())
+    {
+        eqEditor.refresh();
+        compEditor.refresh();
+        eqEditor.setReason(reason);
+    }
+}
+
+void MainComponent::suggestAll()
+{
+    auto& session = engine.getSession();
+    for (int i = 0; i < session.numChannels(); ++i)
+        applyRecommendationToChannel(i);
+
     eqEditor.refresh();
     compEditor.refresh();
-    eqEditor.setReason(rec.reason);
+    eqEditor.setReason("Suggested a full starting mix for every track - play it, then refine from here.");
 }
 
 void MainComponent::setGuided(bool shouldBeGuided)
@@ -323,6 +359,8 @@ void MainComponent::resized()
     loopButton.setBounds(header.removeFromLeft(80).reduced(0, 4));
     header.removeFromLeft(20);
     exportButton.setBounds(header.removeFromLeft(90).reduced(0, 4));
+    header.removeFromLeft(8);
+    suggestAllButton.setBounds(header.removeFromLeft(112).reduced(0, 4));
     header.removeFromLeft(8);
     guidedButton.setBounds(header.removeFromLeft(90).reduced(0, 4));
 

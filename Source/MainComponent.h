@@ -29,7 +29,9 @@ private:
     void loadDemoSession();
     void rebuildStrips();
     void selectChannel(int index);
+    juce::String applyRecommendationToChannel(int index);
     void applyRecommendation(int index);
+    void suggestAll();
     void timerCallback() override;
 
     void setGuided(bool shouldBeGuided);
@@ -49,6 +51,7 @@ private:
     juce::TextButton stopButton { "Stop" };
     juce::TextButton loopButton { "Loop" };
     juce::TextButton exportButton { "Export" };
+    juce::TextButton suggestAllButton { "Suggest all" };
     juce::TextButton guidedButton { "Guided" };
     juce::Label positionLabel;
     juce::Label emptyLabel;

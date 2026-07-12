@@ -48,7 +48,7 @@ ChannelStripComponent::ChannelStripComponent(Binding bindingToUse)
 
     faderSlider.setSliderStyle(juce::Slider::LinearVertical);
     faderSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    faderSlider.setRange(-60.0, 6.0, 0.1);
+    faderSlider.setRange(-60.0, 12.0, 0.1);
     faderSlider.setValue(binding.faderDb != nullptr ? binding.faderDb->load() : 0.0,
                          juce::dontSendNotification);
     faderSlider.onValueChange = [this]
@@ -80,6 +80,15 @@ void ChannelStripComponent::refreshMeter()
     const float l = binding.meterL != nullptr ? binding.meterL->load() : 0.0f;
     const float r = binding.meterR != nullptr ? binding.meterR->load() : 0.0f;
     meter.setLevels(l, r);
+}
+
+void ChannelStripComponent::refreshControls()
+{
+    if (binding.faderDb != nullptr)
+        faderSlider.setValue(binding.faderDb->load(), juce::dontSendNotification);
+    if (binding.pan != nullptr)
+        panSlider.setValue(binding.pan->load(), juce::dontSendNotification);
+    updateDbLabel();
 }
 
 void ChannelStripComponent::paint(juce::Graphics& g)

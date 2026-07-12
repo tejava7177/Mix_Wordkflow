@@ -34,6 +34,9 @@ public:
     // Called from the UI timer to refresh the meter.
     void refreshMeter();
 
+    // Re-read fader/pan from the bound atomics (after external changes).
+    void refreshControls();
+
     void setSelected(bool shouldBeSelected);
 
     // Fired when the strip is clicked (used to select it for editing).
